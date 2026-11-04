@@ -1,0 +1,50 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": "worker.mjs",
+	"name": "pharmacy",
+	"compatibility_date": "2026-11-04",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"triggers": {
+		"crons": ["* * * * *"]
+	},
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Self-reference service binding, the service name must match the worker name
+			// see https://opennext.js.org/cloudflare/caching
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "pharmacy"
+		}
+	],
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "REPLACE_WITH_HYPERDRIVE_ID",
+			"localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "REGULATORY_DOCS_BUCKET",
+			"bucket_name": "pharmacy-regulatory-documents"
+		},
+		{
+			"binding": "NEXT_INC_CACHE_R2_BUCKET",
+			"bucket_name": "pharmacy-next-cache"
+		}
+	],
+	"vars": {
+		"ALERT_SCHEDULER": "off"
+	},
+	"images": {
+		// Enable image optimization
+		// see https://opennext.js.org/cloudflare/howtos/image
+		"binding": "IMAGES"
+	}
+}

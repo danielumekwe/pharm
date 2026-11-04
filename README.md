@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Web365 Pharmacy ERP
 
-## Getting Started
+Multi-outlet pharmacy ERP built with Next.js 16, TypeScript, Tailwind CSS, Prisma 7, and PostgreSQL. Cloudflare deployment setup and operational steps are documented in [CLOUDFlARE_DEPLOYMENT.md](./CLOUDFlARE_DEPLOYMENT.md).
 
-First, run the development server:
+## Local development
+
+Use PostgreSQL locally. Copy [.env.example](./.env.example) to `.env.local`, set a local PostgreSQL connection string and a unique `NEXTAUTH_SECRET`, then run:
 
 ```bash
+npm ci
+npx prisma migrate deploy
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`DATABASE_URL` is used by the local app. `DIRECT_DATABASE_URL` is optional and is preferred by Prisma CLI commands for direct migrations. SQLite URLs are no longer supported by the application.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npx prisma generate
+npx tsc --noEmit
+npm run build
+npm test
+```
 
-## Learn More
+The integration suite starts an isolated embedded PostgreSQL-compatible test database; it does not connect to or reset a developer or production database.
 
-To learn more about Next.js, take a look at the following resources:
+## Cloudflare
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Build and run the local Worker preview with `npm run preview`. Deploy with `npm run deploy` after configuring the Hyperdrive, R2, and secret bindings described in the deployment guide. Never commit `.env.local`, `.dev.vars`, Neon credentials, or Cloudflare API tokens.

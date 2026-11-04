@@ -1,0 +1,3 @@
+# Copy to .dev.vars for local Wrangler preview only. Use real random values locally.
+NEXTAUTH_SECRET="replace-with-a-local-random-secret"
+CRON_SECRET="replace-with-a-local-random-secret"

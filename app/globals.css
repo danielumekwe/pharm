@@ -1,26 +1,172 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --background: #020617;
+  --foreground: #e2e8f0;
+  --card: #0f172a;
+  --card-foreground: #f8fafc;
+  --popover: #111827;
+  --popover-foreground: #f8fafc;
+  --primary: #10b981;
+  --primary-foreground: #051b14;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --muted: #0f172a;
+  --muted-foreground: #94a3b8;
+  --accent: #022c22;
+  --accent-foreground: #a7f3d0;
+  --destructive: #ef4444;
+  --border: rgba(148, 163, 184, 0.18);
+  --input: rgba(15, 23, 42, 0.9);
+  --ring: rgba(52, 211, 153, 0.5);
+  --chart-1: #34d399;
+  --chart-2: #10b981;
+  --chart-3: #2dd4bf;
+  --chart-4: #fbbf24;
+  --chart-5: #f97316;
+  --radius: 0.75rem;
+  --sidebar: #020617;
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-primary: #10b981;
+  --sidebar-primary-foreground: #031912;
+  --sidebar-accent: #0f172a;
+  --sidebar-accent-foreground: #dbeafe;
+  --sidebar-border: rgba(148, 163, 184, 0.2);
+  --sidebar-ring: rgba(52, 211, 153, 0.5);
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #020617;
+  color: #e2e8f0;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  html {
+    @apply font-sans;
+  }
+}
+
+/*
+ * Pharmacy ERP light theme — matches the welcome screen (white cards, green brand, lime accent).
+ * Module pages were written with dark slate utilities; inside `.theme-pharm` those palette
+ * variables are remapped to their light equivalents, so every page follows one theme.
+ * New code can keep using the same utilities (bg-slate-900 = card surface, text-white = heading, etc.).
+ */
+.theme-pharm {
+  color-scheme: light;
+
+  /* surfaces & text (dark → light) */
+  --color-white: #0f2a1c;          /* headings / primary text */
+  --color-slate-50: #12261b;
+  --color-slate-100: #1a2b22;
+  --color-slate-200: #24352c;
+  --color-slate-300: #3b4a43;      /* body text */
+  --color-slate-400: #5a6a63;      /* secondary text */
+  --color-slate-500: #73827b;
+  --color-slate-600: #9aa8a1;
+  --color-slate-700: #cfdad4;      /* input borders */
+  --color-slate-800: #e3ebe6;      /* card borders, dividers, hover */
+  --color-slate-900: #ffffff;      /* card surface */
+  --color-slate-950: #f6f9f7;      /* wells, inputs, table heads */
+
+  /* brand green (emerald utilities → welcome-screen greens) */
+  --color-emerald-50: #f0fdf4;
+  --color-emerald-100: #166534;
+  --color-emerald-200: #166534;
+  --color-emerald-300: #15803d;
+  --color-emerald-400: #16a34a;    /* primary hover */
+  --color-emerald-500: #15803d;    /* primary */
+  --color-emerald-950: #ffffff;    /* text on primary */
+
+  /* status tones readable on white */
+  --color-amber-100: #78350f;
+  --color-amber-200: #92400e;
+  --color-amber-300: #b45309;
+  --color-amber-400: #f59e0b;
+  --color-rose-100: #881337;
+  --color-rose-200: #9f1239;
+  --color-rose-300: #be123c;
+  --color-rose-400: #f43f5e;
+  --color-sky-200: #075985;
+  --color-sky-300: #0369a1;
+  --color-cyan-300: #0e7490;
+
+  /* shadcn tokens */
+  --background: #eef3f0;
+  --foreground: #0f2a1c;
+  --card: #ffffff;
+  --card-foreground: #0f2a1c;
+  --popover: #ffffff;
+  --popover-foreground: #0f2a1c;
+  --primary: #15803d;
+  --primary-foreground: #ffffff;
+  --secondary: #e8efeb;
+  --secondary-foreground: #1a2b22;
+  --muted: #f1f5f3;
+  --muted-foreground: #5a6a63;
+  --accent: #dcfce7;
+  --accent-foreground: #14532d;
+  --border: #e3ebe6;
+  --input: #cfdad4;
+  --ring: rgba(22, 163, 74, 0.45);
+
+  color: var(--color-slate-300);
+}
+
+.theme-pharm .rounded-2xl.border,
+.theme-pharm [data-slot="card"] {
+  box-shadow: 0 1px 2px rgba(15, 81, 50, 0.04), 0 8px 24px -16px rgba(15, 81, 50, 0.18);
 }

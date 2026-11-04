@@ -1,69 +1,110 @@
-import Image from "next/image";
+import {
+  ArrowLeftRight,
+  Barcode,
+  Boxes,
+  ChartNoAxesColumnIncreasing,
+  FileCheck,
+  Pill,
+  ShoppingCart,
+  Users,
+} from "lucide-react";
 
-export default function Home() {
+import { connection } from "next/server";
+
+import { BrandMark } from "@/components/brand-logo";
+import { LoginForm } from "@/components/login-form";
+import { WelcomeSlides } from "@/components/welcome-slides";
+import { outlets } from "@/lib/data";
+
+const features = [
+  { icon: ShoppingCart, label: "POS & Sales" },
+  { icon: Boxes, label: "Inventory & Stock" },
+  { icon: Barcode, label: "Barcode Scanning" },
+  { icon: Pill, label: "Batch & Expiry Control" },
+  { icon: FileCheck, label: "Regulatory Affairs" },
+  { icon: ArrowLeftRight, label: "Stock Transfer" },
+  { icon: ChartNoAxesColumnIncreasing, label: "Reports & Analytics" },
+  { icon: Users, label: "Multi-Outlet Management" },
+];
+
+// Soft, out-of-focus "pharmacy shelves" behind the welcome copy.
+const shelfBackdrop = {
+  backgroundImage: [
+    "radial-gradient(ellipse 40% 30% at 85% 35%, rgba(255,255,255,0.10), transparent 70%)",
+    "radial-gradient(ellipse 30% 20% at 10% 60%, rgba(163,230,53,0.10), transparent 70%)",
+    "repeating-linear-gradient(180deg, transparent 0 118px, rgba(255,255,255,0.07) 118px 124px, transparent 124px 150px)",
+    "repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 26px, transparent 26px 44px, rgba(255,255,255,0.03) 44px 62px, transparent 62px 90px)",
+    "linear-gradient(135deg, #0a4d29 0%, #0d6a33 45%, #12813c 100%)",
+  ].join(","),
+};
+
+export default async function HomePage() {
+  // Rendered per request so outlets created by administrators appear in the sign-in list.
+  await connection();
+  const openOutlets = outlets.filter((outlet) => outlet.status !== "CLOSED").map((outlet) => ({ id: outlet.id, name: outlet.name }));
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <main className="flex min-h-screen flex-col bg-[#f2f6f3] text-slate-900 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,640px)]">
+      <section className="relative order-2 overflow-hidden px-5 pb-12 pt-8 text-white sm:px-10 lg:order-none lg:px-14 lg:py-12" style={shelfBackdrop}>
+        <div className="pointer-events-none absolute inset-0 backdrop-blur-[2px]" />
+        <div className="pointer-events-none absolute -bottom-24 -left-20 h-72 w-[140%] rounded-[50%] bg-gradient-to-r from-lime-400/25 via-green-500/20 to-transparent blur-sm" />
+
+        {/* Curved divider into the sign-in panel (desktop). */}
+        <svg className="absolute inset-y-0 right-0 hidden h-full w-40 lg:block" viewBox="0 0 160 1000" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M160 0H70C150 180 30 360 70 520C110 700 10 860 60 1000H160Z" fill="#f2f6f3" />
+          <path d="M70 0C150 180 30 360 70 520C110 700 10 860 60 1000" fill="none" stroke="#9be22d" strokeWidth="10" />
+        </svg>
+
+        <div className="relative max-w-3xl lg:pr-28">
+          <div className="hidden items-center gap-4 sm:gap-5 lg:flex">
+            <div className="rounded-2xl bg-white/95 p-1.5 shadow-lg">
+              <BrandMark id="hero" className="h-14 w-14 sm:h-16 sm:w-16" />
+            </div>
+            <div className="h-14 w-px bg-white/40" />
+            <div>
+              <p className="text-2xl font-bold tracking-tight sm:text-4xl">Pharmacy ERP</p>
+              <p className="mt-1 max-w-xs text-sm leading-snug text-emerald-50/90 sm:text-base">
+                Pharmacy Management &amp; Enterprise Resource Planning System
+              </p>
+            </div>
+          </div>
+
+          <h1 className="text-4xl lg:mt-10 font-bold leading-[1.08] tracking-tight sm:text-5xl xl:text-6xl">
+            Welcome to
+            <br />
+            <span className="relative inline-block">
+              Pharmacy ERP
+              <svg className="absolute -bottom-3 right-0 h-3 w-3/5" viewBox="0 0 200 12" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M2 10C60 2 140 0 198 6" fill="none" stroke="#a3e635" strokeWidth="4" strokeLinecap="round" />
+              </svg>
+            </span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          <p className="mt-8 max-w-xl text-lg leading-relaxed text-emerald-50/90 sm:text-xl">
+            A complete solution to manage your pharmacy operations, inventory, sales, regulatory affairs and multiple outlets — all in one place.
           </p>
+
+          <ul className="mt-9 grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+            {features.map(({ icon: Icon, label }) => (
+              <li
+                key={label}
+                className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl sm:aspect-[1.05] sm:gap-3 border border-white/20 bg-white/10 p-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-sm"
+              >
+                <Icon className="h-7 w-7 sm:h-10 sm:w-10" strokeWidth={1.6} />
+                <span className="text-sm font-medium leading-tight sm:text-[15px]">{label}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-10">
+            <WelcomeSlides />
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </section>
+
+      <section className="order-1 flex items-start justify-center px-4 py-6 sm:px-8 lg:order-none lg:items-center lg:py-12 lg:pr-12">
+        <LoginForm outlets={openOutlets} />
+      </section>
+    </main>
   );
 }

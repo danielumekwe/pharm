@@ -1,0 +1,11 @@
+# Never upload local secrets, local data or local build output.
+.env
+.env.*
+!.env.example
+.dev.vars
+.data
+.next
+.open-next
+.wrangler
+node_modules
+*.log
