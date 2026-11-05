@@ -9,3 +9,7 @@
 .wrangler
 node_modules
 *.log
+# The Android app project (built locally; only the finished APK in public/downloads is served).
+android-app
+# The Expo/React Native mobile app (built locally; only the finished APK in public/downloads is served).
+mobile

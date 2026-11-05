@@ -60,7 +60,7 @@ export async function startImpersonation(admin: Actor, input: { targetUserId: st
   const verified = adminRecord ? await findUserByCredentials(adminRecord.email, input.password) : null;
   if (!verified || verified.id !== admin.id) {
     recordAudit(admin, { action: "impersonation.denied", entity: "User", entityId: input.targetUserId, summary: `Switch-user confirmation failed (wrong password) for target ${input.targetUserId}`, severity: "critical" });
-    throw new DomainError("Password confirmation failed.", 401);
+    throw new DomainError("Password confirmation failed.", 401, true); // keep the audit entry
   }
 
   const target = users.find((user) => user.id === input.targetUserId);

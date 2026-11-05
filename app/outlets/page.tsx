@@ -13,12 +13,14 @@ import { requirePage } from "@/lib/session";
 
 import { OutletManager } from "./outlet-manager";
 
-export default async function OutletsPage() {
+export default async function OutletsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const actor = await requirePage("outlets.view", "/outlets");
+  const { type } = await searchParams;
+  const warehousesOnly = type === "warehouse";
   const store = getStore();
   const since = isoDaysFromNow(-30);
 
-  const locations = scopeByOutlet(actor, outlets, (outlet) => outlet.id).map((outlet) => {
+  const locations = scopeByOutlet(actor, outlets, (outlet) => outlet.id).filter((outlet) => !warehousesOnly || outlet.type === "WAREHOUSE").map((outlet) => {
     const items = products.filter((product) => product.outletId === outlet.id);
     const sales = store.sales.filter((sale) => sale.outletId === outlet.id && sale.status !== "Voided" && sale.date >= since);
     return {
@@ -42,7 +44,7 @@ export default async function OutletsPage() {
       <div className="space-y-6">
         <PageHeader
           eyebrow="Network"
-          title="Outlets & warehouses"
+          title={warehousesOnly ? "Warehouses & stores" : "Outlets & warehouses"}
           description="Retail outlets sell to patients; the central warehouse receives bulk deliveries and replenishes outlets through approved transfers."
         />
         <StatGrid

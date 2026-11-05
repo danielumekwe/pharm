@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PharmaERP</string>
+    <string name="title_activity_main">PharmaERP</string>
+    <string name="package_name">com.pharmaerp.app</string>
+    <string name="custom_url_scheme">com.pharmaerp.app</string>
+</resources>

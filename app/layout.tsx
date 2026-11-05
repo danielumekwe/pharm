@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { Providers } from "@/components/providers";
+import { auth } from "@/lib/auth";
+import { readBranding } from "@/lib/erp/branding";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,19 +16,23 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "Web365 PharmERP",
-  description: "Pharmacy management and ERP platform for multi-outlet operations.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { name } = await readBranding();
+  return {
+    title: { default: name, template: `%s · ${name}` },
+    description: "Pharmacy management and ERP platform for multi-outlet operations.",
+  };
+}
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const [branding, session] = await Promise.all([readBranding(), auth().catch(() => null)]);
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[#eef3f0] text-slate-900">
-        <Providers>{children}</Providers>
+      <body className="min-h-full flex flex-col bg-slate-100 text-slate-900">
+        <Providers branding={branding} session={session}>{children}</Providers>
       </body>
     </html>
   );

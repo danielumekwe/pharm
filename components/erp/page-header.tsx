@@ -15,10 +15,10 @@ export function PageHeader({
   scope?: string;
 }) {
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-l-4 border-slate-800 border-l-lime-400 bg-slate-900/70 p-5 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-5 md:flex-row md:items-center md:justify-between">
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-300">{eyebrow}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-600">{eyebrow}</p>
           {scope ? (
             <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-300">{scope}</span>
           ) : null}

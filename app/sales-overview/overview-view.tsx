@@ -41,7 +41,7 @@ export function SalesOverviewView({ overview, error, today, outlets }: { overvie
     { label: "This month", from: monthStart, to: today },
     { label: "Last 30 days", from: shiftDate(today, -29), to: today },
   ];
-  const pill = (active: boolean) => `rounded-lg px-3 py-1.5 text-sm transition ${active ? "bg-emerald-500 font-medium text-emerald-950" : "text-slate-300 hover:bg-slate-800"}`;
+  const pill = (active: boolean) => `rounded-lg px-3 py-1.5 text-sm transition ${active ? "bg-blue-600 font-medium text-[#fff]" : "text-slate-300 hover:bg-slate-800"}`;
 
   if (!overview || !meta) {
     return (
@@ -75,7 +75,7 @@ export function SalesOverviewView({ overview, error, today, outlets }: { overvie
         actions={
           <div className="flex gap-2 print:hidden">
             <a href={exportHref("pdf")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm font-medium text-slate-100 hover:bg-slate-800"><FileText className="h-4 w-4" /> PDF</a>
-            <a href={exportHref("xlsx")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-500 px-3 text-sm font-medium text-emerald-950 hover:bg-emerald-400"><FileSpreadsheet className="h-4 w-4" /> Excel</a>
+            <a href={exportHref("xlsx")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-medium text-[#fff] hover:bg-blue-700"><FileSpreadsheet className="h-4 w-4" /> Excel</a>
           </div>
         }
       />

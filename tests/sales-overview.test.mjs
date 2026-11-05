@@ -84,6 +84,8 @@ describe("Daily sales overview", () => {
     const cashier = await signedIn(server.baseUrl, "cashier@web365.ng", "outlet-1");
     const manager = await signedIn(server.baseUrl, "outlet@web365.ng", "outlet-1");
     const before = (await admin.get("/api/sales-overview?outlet=outlet-1")).data.totals;
+    // Sale A gives a 9% discount; allow cashiers up to 10% for this scenario (the default limit is 5%).
+    assert.equal((await admin.patch("/api/settings/pos", { cashierMaxDiscountPct: 10, approverMaxDiscountPct: 25, salesTargets: {} })).status, 200);
 
     // Sale A: 2 × ₦2,200 with a ₦400 line discount (cash). Sale B: 1 × ₦2,200 by POS, then voided.
     const saleA = await cashier.post("/api/sales", { outletId: "outlet-1", customerId: "cus-1", paymentMethod: "Cash", lines: [{ productId: "prod-8", quantity: 2, discount: 400 }] });

@@ -1,4 +1,5 @@
-export function money(value: number) {
+export function money(input: number) {
+  const value = Object.is(input, -0) || Math.abs(input) < 0.005 ? 0 : input;
   return `₦${Math.round(value).toLocaleString("en-NG")}`;
 }
 

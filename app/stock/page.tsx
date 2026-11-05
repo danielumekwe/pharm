@@ -1,6 +1,8 @@
 import { DashboardShell } from "@/components/dashboard-shell";
 import { batches, outlets, products, stockMovements } from "@/lib/data";
-import { daysToExpiry, isExpired, outletName, scopeByOutlet, sellableQuantity } from "@/lib/erp/services";
+import { LEDGER_LABELS } from "@/lib/erp/ledger";
+import { daysToExpiry, isBatchBlocked, isExpired, outletName, scopeByOutlet, sellableQuantity } from "@/lib/erp/services";
+import { getStore } from "@/lib/erp/store";
 import { can, isOutletScoped } from "@/lib/rbac";
 import { requirePage } from "@/lib/session";
 
@@ -28,7 +30,7 @@ export default async function StockPage() {
   const batchRows = scopeByOutlet(actor, batches, (batch) => batch.assignedOutletId).map((batch) => ({
     ...batch,
     days: daysToExpiry(batch),
-    state: isExpired(batch) ? "Expired" : daysToExpiry(batch) <= 120 ? "Near expiry" : "Healthy",
+    state: isExpired(batch) ? "Expired" : isBatchBlocked(batch) ? "Quarantined" : daysToExpiry(batch) <= getStore().settings.nearExpiryDays ? "Near expiry" : "Healthy",
   }));
 
   const movements = scopeByOutlet(actor, stockMovements, (movement) => movement.outletId).concat(
@@ -42,6 +44,8 @@ export default async function StockPage() {
         items={items}
         batches={batchRows}
         movements={movements}
+        ledger={scopeByOutlet(actor, getStore().stockLedger, (entry) => entry.outletId).slice(0, 2000)}
+        ledgerLabels={LEDGER_LABELS}
         locations={outlets.map((outlet) => ({ id: outlet.id, name: outlet.name }))}
         actorName={actor.name}
         scope={actor.outletId ? outletName(actor.outletId) : undefined}

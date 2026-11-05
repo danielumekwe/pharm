@@ -100,36 +100,36 @@ body {
 }
 
 /*
- * Pharmacy ERP light theme — matches the welcome screen (white cards, green brand, lime accent).
- * Module pages were written with dark slate utilities; inside `.theme-pharm` those palette
- * variables are remapped to their light equivalents, so every page follows one theme.
- * New code can keep using the same utilities (bg-slate-900 = card surface, text-white = heading, etc.).
+ * Pharmacy ERP light theme: white cards on light grey, professional blue for primary actions, green only for success.
+ * Module pages were written with dark slate utilities; inside `.theme-pharm` those palette variables are
+ * remapped to light equivalents so every page follows one theme. New code can keep using the same utilities
+ * (bg-slate-900 = card surface, text-white = heading, bg-slate-950 = wells/inputs) or plain blue-* for actions.
  */
 .theme-pharm {
   color-scheme: light;
 
   /* surfaces & text (dark → light) */
-  --color-white: #0f2a1c;          /* headings / primary text */
-  --color-slate-50: #12261b;
-  --color-slate-100: #1a2b22;
-  --color-slate-200: #24352c;
-  --color-slate-300: #3b4a43;      /* body text */
-  --color-slate-400: #5a6a63;      /* secondary text */
-  --color-slate-500: #73827b;
-  --color-slate-600: #9aa8a1;
-  --color-slate-700: #cfdad4;      /* input borders */
-  --color-slate-800: #e3ebe6;      /* card borders, dividers, hover */
+  --color-white: #0f172a;          /* headings / primary text */
+  --color-slate-50: #111827;
+  --color-slate-100: #1e293b;
+  --color-slate-200: #273449;
+  --color-slate-300: #334155;      /* body text */
+  --color-slate-400: #5b6b82;      /* secondary text */
+  --color-slate-500: #718096;
+  --color-slate-600: #a0aec0;
+  --color-slate-700: #cbd5e1;      /* input borders */
+  --color-slate-800: #e5e9f0;      /* card borders, dividers, hover */
   --color-slate-900: #ffffff;      /* card surface */
-  --color-slate-950: #f6f9f7;      /* wells, inputs, table heads */
+  --color-slate-950: #f7f9fc;      /* wells, inputs, table heads */
 
-  /* brand green (emerald utilities → welcome-screen greens) */
+  /* success green (emerald utilities) */
   --color-emerald-50: #f0fdf4;
   --color-emerald-100: #166534;
   --color-emerald-200: #166534;
   --color-emerald-300: #15803d;
-  --color-emerald-400: #16a34a;    /* primary hover */
-  --color-emerald-500: #15803d;    /* primary */
-  --color-emerald-950: #ffffff;    /* text on primary */
+  --color-emerald-400: #16a34a;
+  --color-emerald-500: #15803d;
+  --color-emerald-950: #ffffff;
 
   /* status tones readable on white */
   --color-amber-100: #78350f;
@@ -145,28 +145,33 @@ body {
   --color-cyan-300: #0e7490;
 
   /* shadcn tokens */
-  --background: #eef3f0;
-  --foreground: #0f2a1c;
+  --background: #f1f5f9;
+  --foreground: #0f172a;
   --card: #ffffff;
-  --card-foreground: #0f2a1c;
+  --card-foreground: #0f172a;
   --popover: #ffffff;
-  --popover-foreground: #0f2a1c;
-  --primary: #15803d;
+  --popover-foreground: #0f172a;
+  --primary: #1d4ed8;
   --primary-foreground: #ffffff;
-  --secondary: #e8efeb;
-  --secondary-foreground: #1a2b22;
-  --muted: #f1f5f3;
-  --muted-foreground: #5a6a63;
-  --accent: #dcfce7;
-  --accent-foreground: #14532d;
-  --border: #e3ebe6;
-  --input: #cfdad4;
-  --ring: rgba(22, 163, 74, 0.45);
+  --secondary: #eef2f7;
+  --secondary-foreground: #1e293b;
+  --muted: #f1f5f9;
+  --muted-foreground: #5b6b82;
+  --accent: #eff6ff;
+  --accent-foreground: #1e3a8a;
+  --border: #e5e9f0;
+  --input: #cbd5e1;
+  --ring: rgba(37, 99, 235, 0.4);
 
   color: var(--color-slate-300);
 }
 
 .theme-pharm .rounded-2xl.border,
 .theme-pharm [data-slot="card"] {
-  box-shadow: 0 1px 2px rgba(15, 81, 50, 0.04), 0 8px 24px -16px rgba(15, 81, 50, 0.18);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -18px rgba(15, 23, 42, 0.18);
 }
+
+/* Android app (Capacitor shell): the bridge sets data-native on <html>. */
+.native-only { display: none !important; }
+html[data-native] .native-only { display: inline-flex !important; }
+html[data-native] .web-only { display: none !important; }

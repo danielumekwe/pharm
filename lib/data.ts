@@ -1,5 +1,6 @@
 import { verifyPassword } from "@/lib/password";
 import { DATA_VERSION } from "@/lib/data-version";
+import type { PackagingLevel, ProductBarcode } from "@/lib/erp/packaging";
 import type { Role } from "@/lib/rbac";
 
 export type { Role } from "@/lib/rbac";
@@ -81,6 +82,28 @@ export type Product = {
    * or inherited from a product-wide, outlet-wide or global default rule.
    */
   thresholdSource?: "item" | "product" | "outlet" | "default";
+  /** Product code / SKU, unique per item name. */
+  sku?: string;
+  /** Product type, e.g. "Prescription medicine", "OTC medicine", "Consumable". */
+  productType?: string;
+  /** Dosage form, e.g. Tablet, Syrup, Injection (configurable list). */
+  dosageForm?: string;
+  /** Pack size or weight, e.g. 500g, 100ml. */
+  size?: string;
+  description?: string;
+  /** Preferred supplier. */
+  supplierId?: string;
+  /** Catalogue lifecycle. Inactive items cannot be sold; discontinued items cannot be sold or received. */
+  lifecycle?: "ACTIVE" | "INACTIVE" | "DISCONTINUED";
+  /** Smallest unit stock is counted in (e.g. Tablet). Stock, batch quantities and the ledger use this unit. */
+  baseUnit?: string;
+  /** Per base unit. */
+  wholesalePrice?: number;
+  /** Per base unit; POS discounts may not take the price below it. */
+  minSellingPrice?: number;
+  /** Packaging levels, largest first; the last is the base unit. */
+  packaging?: PackagingLevel[];
+  barcodes?: ProductBarcode[];
 };
 
 export type BatchDisposition = {
@@ -107,6 +130,11 @@ export type BatchRecord = {
   purchasePrice: number;
   /** Expired-stock handling state (quarantine, return to supplier, disposal). */
   disposition?: BatchDisposition;
+  supplierId?: string;
+  /** The supplier's own batch reference, when it differs from the printed batch number. */
+  supplierBatchRef?: string;
+  /** Regulatory (e.g. NAFDAC) number printed on this batch. */
+  regulatoryNumber?: string;
 };
 
 export type StockMovement = {
@@ -115,6 +143,7 @@ export type StockMovement = {
   date: string;
   type: "Receive" | "Issue" | "Transfer" | "Adjustment" | "Return";
   outletId: string;
+  productId?: string;
   productName: string;
   quantity: number;
   status: "Approved" | "Pending" | "Rejected";
@@ -127,6 +156,11 @@ export type StockMovement = {
   reason?: string;
   requestedBy?: string;
   approvedBy?: string;
+  /** Adjustments only: IN adds counted stock to a batch, OUT (default) removes it. */
+  direction?: "IN" | "OUT";
+  /** Goods receipts: supplier invoice and purchase reference. */
+  invoiceNumber?: string;
+  purchaseReference?: string;
 };
 
 export const outlets: Outlet[] = persist("outlets", [
@@ -232,7 +266,7 @@ export const users: User[] = persist("users", [
     email: "cashier@web365.ng",
     phone: "0805 118 2290",
     password: "Admin@123",
-    role: "STAFF",
+    role: "CASHIER",
     outletId: "outlet-1",
     outletIds: ["outlet-1"],
     status: "ACTIVE",
@@ -933,43 +967,6 @@ export function getStockMovementsServer() {
   return [...stockMovements];
 }
 
-function reconcileProductStock(movement: StockMovement) {
-  const matchedProduct =
-    products.find((product) => product.name === movement.productName && product.outletId === movement.outletId) ??
-    products.find((product) => product.name === movement.productName);
-
-  if (!matchedProduct) {
-    return;
-  }
-
-  switch (movement.type) {
-    case "Receive":
-    case "Return":
-      matchedProduct.stock += movement.quantity;
-      break;
-    case "Issue":
-    case "Transfer":
-    case "Adjustment":
-      matchedProduct.stock = Math.max(0, matchedProduct.stock - movement.quantity);
-      break;
-    default:
-      break;
-  }
-
-  matchedProduct.status = matchedProduct.stock <= matchedProduct.minStock ? "LOW_STOCK" : "ACTIVE";
-
-  // Transfers credit the destination location when it already stocks the item.
-  if (movement.type === "Transfer" && movement.toOutletId) {
-    const destination = products.find(
-      (product) => product.name === movement.productName && product.outletId === movement.toOutletId,
-    );
-    if (destination) {
-      destination.stock += movement.quantity;
-      destination.status = destination.stock <= destination.minStock ? "LOW_STOCK" : "ACTIVE";
-    }
-  }
-}
-
 export function updateStockMovementStatus(id: string, status: "Approved" | "Rejected", approvedBy?: string) {
   const index = stockMovements.findIndex((movement) => movement.id === id);
   if (index === -1) return null;
@@ -977,10 +974,7 @@ export function updateStockMovementStatus(id: string, status: "Approved" | "Reje
   const current = stockMovements[index];
   const next = { ...current, status, approvedBy: approvedBy ?? current.approvedBy };
 
-  if (status === "Approved" && current.status !== "Approved") {
-    reconcileProductStock(next);
-  }
-
+  // Stock itself changes only through the stock ledger (lib/erp/ledger.ts) when the movement is approved.
   stockMovements[index] = next;
   return stockMovements[index];
 }
@@ -996,6 +990,10 @@ export function addStockMovement(input: Partial<StockMovement>) {
     quantity: input.quantity ?? 0,
     status: input.status ?? "Pending",
     toOutletId: input.toOutletId,
+    productId: input.productId,
+    direction: input.direction,
+    invoiceNumber: input.invoiceNumber,
+    purchaseReference: input.purchaseReference,
     batchId: input.batchId,
     disposition: input.disposition,
     reason: input.reason,
@@ -1084,59 +1082,6 @@ export function getOutlets() {
 
 export async function getOutletsServer() {
   return outlets;
-}
-
-export function addBatch(input: Partial<BatchRecord>) {
-  const productName = input.productName ?? "New product";
-  const outletId = input.assignedOutletId ?? "outlet-1";
-  const quantityReceived = Number(input.quantityReceived ?? 0);
-  const purchasePrice = Number(input.purchasePrice ?? 0);
-
-  const batch: BatchRecord = {
-    id: input.id ?? `batch-${Date.now()}`,
-    batchNumber: input.batchNumber ?? `GRN-${Date.now().toString().slice(-6)}`,
-    productId: input.productId ?? `prod-${Date.now()}`,
-    productName,
-    supplier: input.supplier ?? "Incoming supplier",
-    assignedOutletId: outletId,
-    receivingDate: input.receivingDate ?? new Date().toISOString().split("T")[0],
-    manufacturingDate: input.manufacturingDate ?? new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString().split("T")[0],
-    expiryDate: input.expiryDate ?? new Date(Date.now() + 1000 * 60 * 60 * 24 * 180).toISOString().split("T")[0],
-    quantityReceived,
-    availableQuantity: input.availableQuantity ?? quantityReceived,
-    purchasePrice,
-  };
-
-  batches.unshift(batch);
-
-  const productMatch = products.find((product) => product.name === productName && product.outletId === outletId)
-    ?? products.find((product) => product.name === productName);
-
-  if (productMatch) {
-    productMatch.stock += quantityReceived;
-    productMatch.status = productMatch.stock <= productMatch.minStock ? "LOW_STOCK" : "ACTIVE";
-  } else {
-    products.unshift({
-      id: `prod-${Date.now()}`,
-      name: productName,
-      genericName: "New item",
-      category: "General",
-      manufacturer: "Incoming supplier",
-      strength: "N/A",
-      uom: "Pack",
-      purchasePrice,
-      sellingPrice: Math.max(purchasePrice * 1.5, 500),
-      minStock: 25,
-      stock: quantityReceived,
-      status: quantityReceived <= 25 ? "LOW_STOCK" : "ACTIVE",
-      barcode: `890${Date.now().toString().slice(-10)}`,
-      nafdacNumber: "Pending",
-      outletId,
-      expiryWindow: "6 months",
-    });
-  }
-
-  return batch;
 }
 
 export async function getBatchesServer() {

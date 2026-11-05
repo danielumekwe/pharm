@@ -45,7 +45,30 @@ export async function requirePage(permission: Permission | Permission[], path: s
 
 type Handler = (actor: Actor) => Promise<unknown> | unknown;
 
-/** Route-handler wrapper: authenticates, checks the permission, and maps domain errors to HTTP. */
+/** Carries an error response out of the database transaction so the transaction rolls back. */
+class RolledBack extends Error {
+  constructor(public response: NextResponse) {
+    super("rolled back");
+  }
+}
+
+function errorResponse(error: unknown) {
+  if (error instanceof DomainError) return NextResponse.json({ error: error.message }, { status: error.status });
+  if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  if (error && typeof error === "object" && "issues" in error) {
+    const issue = (error as { issues?: { path?: PropertyKey[]; message?: string }[] }).issues?.[0];
+    const field = issue?.path?.filter((part) => typeof part === "string").join(" › ");
+    return NextResponse.json({ error: field ? `Check ${field}: ${issue?.message ?? "invalid value"}.` : "Some fields are missing or invalid." }, { status: 422 });
+  }
+  console.error(error);
+  return NextResponse.json({ error: "Unexpected server error." }, { status: 500 });
+}
+
+/**
+ * Route-handler wrapper: authenticates, checks the permission, runs the handler in one database transaction and
+ * maps errors to HTTP. A failed request is rolled back as a whole (stock, payments, audit), unless the error
+ * explicitly asks to keep its changes.
+ */
 export async function guarded(permission: Permission | Permission[], handler: Handler, successStatus = 200) {
   try {
     return await withDatabaseTransaction(async () => {
@@ -59,16 +82,12 @@ export async function guarded(permission: Permission | Permission[], handler: Ha
         await flushDatabase();
         return NextResponse.json(result, { status: successStatus });
       } catch (error) {
-        if (error instanceof DomainError) return NextResponse.json({ error: error.message }, { status: error.status });
-        if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-        if (error && typeof error === "object" && "issues" in error) {
-          return NextResponse.json({ error: "Some fields are missing or invalid." }, { status: 422 });
-        }
-        console.error(error);
-        return NextResponse.json({ error: "Unexpected server error." }, { status: 500 });
+        if (error instanceof DomainError && error.keepChanges) return errorResponse(error);
+        throw new RolledBack(errorResponse(error));
       }
     });
   } catch (error) {
+    if (error instanceof RolledBack) return error.response;
     console.error("[db] request transaction failed", error);
     return NextResponse.json({ error: "Database unavailable." }, { status: 503 });
   }

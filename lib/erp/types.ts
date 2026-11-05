@@ -49,7 +49,10 @@ export type Supplier = {
   categories: string;
 };
 
-export type PaymentMethod = "Cash" | "Card" | "Transfer" | "Credit" | "HMO";
+/** "Card" is a POS-terminal payment; "Split" means several tender types (see SaleInvoice.payments). */
+export type PaymentMethod = "Cash" | "Card" | "Transfer" | "Credit" | "HMO" | "Split";
+export type TenderMethod = "Cash" | "Card" | "Transfer";
+export type SaleTender = { method: TenderMethod; amount: number; reference?: string };
 
 export type SaleLine = {
   productId: string;
@@ -59,6 +62,14 @@ export type SaleLine = {
   unitPrice: number;
   discount: number;
   total: number;
+  /** Package sold (e.g. "Strip"); quantity above is always in base units. */
+  packagingName?: string;
+  unitsPerPackage?: number;
+  /** Number of packages sold and the price charged per package. */
+  packQuantity?: number;
+  packPrice?: number;
+  /** Exact batches the base units were drawn from (FEFO), used to reverse voids and returns. */
+  allocations?: { batchId: string; batchNumber: string; quantity: number }[];
 };
 
 export type SaleStatus = "Paid" | "Partially paid" | "Unpaid" | "Voided";
@@ -83,6 +94,79 @@ export type SaleInvoice = {
   status: SaleStatus;
   prescriptionRef?: string;
   voidReason?: string;
+  /** Tender split. Absent on older sales (paymentMethod then covers amountPaid). */
+  payments?: SaleTender[];
+  /** Cash handed over and change given back (cash tenders only). */
+  tendered?: number;
+  change?: number;
+  /** Transaction-level discount as entered (the amount is included in `discount`). */
+  globalDiscount?: { type: "percent" | "amount"; value: number; amount: number };
+  /** Who authorised discounts above the cashier limit (the cashier when within their own limit). */
+  discountAuthorisedBy?: string;
+  /** Walk-in customer details captured at the till (no customer account). */
+  walkIn?: { name?: string; phone?: string };
+  customerKind?: "Normal" | "Family";
+  /** Held/draft basket this sale was completed from. */
+  heldId?: string;
+  receiptPrints?: number;
+};
+
+/** A basket parked at the till (held for a waiting customer, or saved as a draft). Not a sale: no stock moves. */
+export type HeldSale = {
+  id: string;
+  reference: string;
+  kind: "HELD" | "DRAFT";
+  outletId: string;
+  cashierId: string;
+  cashierName: string;
+  createdAt: string;
+  updatedAt: string;
+  label?: string;
+  /** The POS cart as entered: lines, customer and discount settings. */
+  cart: {
+    lines: { productId: string; packagingId?: string; quantity: number; discount?: { type: "percent" | "amount"; value: number } }[];
+    customerId?: string | null;
+    walkIn?: { name?: string; phone?: string };
+    customerKind?: "Normal" | "Family";
+    globalDiscount?: { type: "percent" | "amount"; value: number };
+    prescriptionRef?: string;
+  };
+};
+
+export const TRANSFER_STATUSES = ["Draft", "Pending approval", "Approved", "Dispatched", "Partially received", "Received", "Rejected", "Cancelled"] as const;
+export type TransferStatus = (typeof TRANSFER_STATUSES)[number];
+
+export type StockTransferLine = {
+  productId: string;
+  productName: string;
+  /** Base units. */
+  requested: number;
+  /** Batches that left the source outlet (FEFO at dispatch). */
+  dispatched: { batchId: string; batchNumber: string; expiryDate: string; quantity: number }[];
+  /** Units confirmed at the destination, per batch number. */
+  received: { batchNumber: string; quantity: number }[];
+};
+
+/** Explicit inter-outlet transfer: request → approval → dispatch → receipt, with discrepancies recorded. */
+export type StockTransfer = {
+  id: string;
+  reference: string;
+  fromOutletId: string;
+  toOutletId: string;
+  status: TransferStatus;
+  lines: StockTransferLine[];
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+  createdById: string;
+  approvedBy?: string;
+  dispatchedAt?: string;
+  dispatchedBy?: string;
+  receivedAt?: string;
+  receivedBy?: string;
+  /** Dispatched but not received, per batch, with the receiver's explanation. */
+  discrepancies: { productName: string; batchNumber: string; missing: number; note: string }[];
+  history: { at: string; actor: string; action: string; note?: string }[];
 };
 
 export type PurchaseOrderLine = {
@@ -128,7 +212,7 @@ export type Payment = {
   partyId: string;
   partyName: string;
   documentRef: string;
-  method: Exclude<PaymentMethod, "Credit">;
+  method: Exclude<PaymentMethod, "Credit" | "Split">;
   account: string;
   amount: number;
   recordedBy: string;
@@ -187,7 +271,10 @@ export const EXPENSE_CATEGORIES = [
 export const BANK_ACCOUNTS = ["Cash till", "GTBank ••2231", "Access ••7710", "POS settlement ••0912"] as const;
 
 export type SystemSettings = {
+  /** Shown as the site title and next to the logo. */
   businessName: string;
+  /** Stored file name of the uploaded logo; null shows the built-in mark. */
+  logoFile: string | null;
   /** VAT charged on sales, in percent. */
   vatRate: number;
   /** Minimum remaining shelf life accepted at goods receipt, in days. */
@@ -228,6 +315,23 @@ export type SystemSettings = {
   /** Supplier payments at or above this amount need approval rights. */
   supplierPaymentApprovalThreshold: number;
   passwordMinLength: number;
+  /** Lists used by product registration, maintained by users with "catalog.manage". */
+  catalog: ProductCatalogLists;
+  pos: {
+    /** Largest discount (% of the basket) a cashier may give without "sales.discount". */
+    cashierMaxDiscountPct: number;
+    /** Ceiling for users who hold "sales.discount". */
+    approverMaxDiscountPct: number;
+  };
+  /** Daily sales target per outlet (₦). Outlets without a target show no progress bar. */
+  salesTargets: Record<string, number>;
+};
+
+export type ProductCatalogLists = {
+  categories: string[];
+  dosageForms: string[];
+  productTypes: string[];
+  packagingTypes: string[];
 };
 
 export type RegistrationCategory = "Drug" | "Medical device" | "Supplement" | "Cosmetic";
@@ -242,9 +346,17 @@ export type ProductRegistration = {
   issuedDate: string;
   expiryDate: string;
   notes?: string;
+  /** Registered, Pending, Renewal due, Expired, Suspended or Exempt. */
+  status?: RegistrationStatus;
+  renewalDate?: string;
+  /** Local representative / marketing authorisation holder in Nigeria. */
+  localRepresentative?: string;
   updatedBy: string;
   updatedAt: string;
 };
+
+export const REGISTRATION_STATUSES = ["Registered", "Pending", "Under review", "Renewal in progress", "Rejected", "Expired", "Suspended", "Exempt"] as const;
+export type RegistrationStatus = (typeof REGISTRATION_STATUSES)[number];
 
 export const DOCUMENT_CATEGORIES = [
   "NAFDAC certificate",
@@ -382,3 +494,68 @@ export type ImpersonationSession = {
 };
 
 export type DeviceRegistration = { id: string; userId: string; token: string; platform: "android" | "ios" | "web"; label?: string; registeredAt: string; lastSeenAt: string };
+
+// ---------------------------------------------------------------- stock ledger
+
+export const LEDGER_TYPES = [
+  "OPENING",
+  "RECEIVE",
+  "SALE",
+  "SALE_RETURN",
+  "SALE_VOID",
+  "ISSUE",
+  "TRANSFER_OUT",
+  "TRANSFER_IN",
+  "ADJUSTMENT_IN",
+  "ADJUSTMENT_OUT",
+  "WRITE_OFF",
+  "SUPPLIER_RETURN",
+] as const;
+export type StockLedgerType = (typeof LEDGER_TYPES)[number];
+
+/** One immutable stock transaction. Batch and item balances are always the running sum of these rows. */
+export type StockLedgerEntry = {
+  id: string;
+  /** Document reference (GRN, invoice, transfer, adjustment…). */
+  reference: string;
+  at: string;
+  type: StockLedgerType;
+  productId: string;
+  productName: string;
+  outletId: string;
+  batchId: string;
+  batchNumber: string;
+  /** Quantity in the unit it was entered in (e.g. 2 Cartons), always positive. */
+  quantity: number;
+  unit: string;
+  unitsPerUnit: number;
+  /** Signed change in base units (+ in, − out). */
+  baseQuantity: number;
+  /** Item balance at the outlet before and after, in base units. */
+  previousBalance: number;
+  newBalance: number;
+  /** Batch balance after the transaction. */
+  batchBalance: number;
+  /** Cost per base unit at the time of the transaction. */
+  unitCost: number;
+  userId: string;
+  userName: string;
+  remarks?: string;
+  /** Approval workflow record (stock_movements) that produced this entry, if any. */
+  movementId?: string;
+};
+
+export type PriceChange = {
+  id: string;
+  at: string;
+  productId: string;
+  productName: string;
+  outletId: string;
+  /** Packaging level name, or the base unit. */
+  level: string;
+  kind: "purchase" | "selling" | "wholesale" | "minimum";
+  oldValue: number | null;
+  newValue: number | null;
+  userId: string;
+  userName: string;
+};

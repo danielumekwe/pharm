@@ -20,8 +20,8 @@ model Outlet {
   pcnLicense           String?   @map("pcn_license")
   licenceExpiry        String?   @map("licence_expiry")
   status               String?
-  stockValue           Float?    @map("stock_value")
-  sales                Float?
+  stockValue           Decimal?  @map("stock_value") @db.Decimal(18, 4)
+  sales                Decimal?  @db.Decimal(18, 4)
   seq                  Int       // insertion order
   @@map("outlets")
 }
@@ -66,9 +66,10 @@ model Product {
   category             String?
   manufacturer         String?
   strength             String?
+  size                 String?
   uom                  String?
-  purchasePrice        Float?    @map("purchase_price")
-  sellingPrice         Float?    @map("selling_price")
+  purchasePrice        Decimal?  @map("purchase_price") @db.Decimal(18, 4)
+  sellingPrice         Decimal?  @map("selling_price") @db.Decimal(18, 4)
   minStock             Int?      @map("min_stock")
   maxStock             Int?      @map("max_stock")
   stock                Int?
@@ -80,11 +81,55 @@ model Product {
   rxOnly               Boolean?  @map("rx_only")
   controlled           Boolean?
   thresholdSource      String?   @map("threshold_source")
+  sku                  String?
+  productType          String?   @map("product_type")
+  dosageForm           String?   @map("dosage_form")
+  description          String?
+  supplierId           String?   @map("supplier_id")
+  lifecycle            String?
+  baseUnit             String?   @map("base_unit")
+  wholesalePrice       Decimal?  @map("wholesale_price") @db.Decimal(18, 4)
+  minSellingPrice      Decimal?  @map("min_selling_price") @db.Decimal(18, 4)
   seq                  Int       // insertion order
+  packaging            ProductPackaging[]
+  barcodes             ProductBarcode[]
 
   @@index([name])
   @@index([outletId])
+  @@index([sku])
   @@map("products")
+}
+
+model ProductPackaging {
+  productId            String    @map("product_id")
+  position             Int
+  id                   String?
+  name                 String?
+  contains             Int?
+  unitsPerPackage      Int?      @map("units_per_package")
+  isBase               Boolean?  @map("is_base")
+  purchasePrice        Decimal?  @map("purchase_price") @db.Decimal(18, 4)
+  sellingPrice         Decimal?  @map("selling_price") @db.Decimal(18, 4)
+  wholesalePrice       Decimal?  @map("wholesale_price") @db.Decimal(18, 4)
+  minSellingPrice      Decimal?  @map("min_selling_price") @db.Decimal(18, 4)
+  sellable             Boolean?
+  parent               Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([productId, position])
+  @@map("product_packaging")
+}
+
+model ProductBarcode {
+  productId            String    @map("product_id")
+  position             Int
+  code                 String?
+  format               String?
+  source               String?
+  packagingId          String?   @map("packaging_id")
+  parent               Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([productId, position])
+  @@map("product_barcodes")
 }
 
 model Batche {
@@ -99,8 +144,11 @@ model Batche {
   expiryDate           String    @map("expiry_date")
   quantityReceived     Int?      @map("quantity_received")
   availableQuantity    Int?      @map("available_quantity")
-  purchasePrice        Float?    @map("purchase_price")
+  purchasePrice        Decimal?  @map("purchase_price") @db.Decimal(18, 4)
   disposition          String?    // JSON
+  supplierId           String?   @map("supplier_id")
+  supplierBatchRef     String?   @map("supplier_batch_ref")
+  regulatoryNumber     String?   @map("regulatory_number")
   seq                  Int       // insertion order
 
   @@index([batchNumber])
@@ -117,6 +165,7 @@ model StockMovement {
   type                 String?
   outletId             String?   @map("outlet_id")
   toOutletId           String?   @map("to_outlet_id")
+  productId            String?   @map("product_id")
   productName          String?   @map("product_name")
   quantity             Int?
   status               String?
@@ -125,12 +174,111 @@ model StockMovement {
   reason               String?
   requestedBy          String?   @map("requested_by")
   approvedBy           String?   @map("approved_by")
+  direction            String?
+  invoiceNumber        String?   @map("invoice_number")
+  purchaseReference    String?   @map("purchase_reference")
   seq                  Int       // insertion order
 
   @@index([date])
   @@index([outletId])
+  @@index([productId])
   @@index([status])
   @@map("stock_movements")
+}
+
+model StockLedger {
+  id                   String    @id
+  reference            String
+  at                   String
+  type                 String
+  productId            String    @map("product_id")
+  productName          String?   @map("product_name")
+  outletId             String    @map("outlet_id")
+  batchId              String    @map("batch_id")
+  batchNumber          String?   @map("batch_number")
+  quantity             Float?
+  unit                 String?
+  unitsPerUnit         Int?      @map("units_per_unit")
+  baseQuantity         Int       @map("base_quantity")
+  previousBalance      Int?      @map("previous_balance")
+  newBalance           Int?      @map("new_balance")
+  batchBalance         Int?      @map("batch_balance")
+  unitCost             Decimal?  @map("unit_cost") @db.Decimal(18, 4)
+  userId               String?   @map("user_id")
+  userName             String?   @map("user_name")
+  remarks              String?
+  movementId           String?   @map("movement_id")
+  seq                  Int       // insertion order
+
+  @@index([reference])
+  @@index([at])
+  @@index([type])
+  @@index([productId])
+  @@index([outletId])
+  @@index([batchId])
+  @@map("stock_ledger")
+}
+
+model PriceHistory {
+  id                   String    @id
+  at                   String
+  productId            String    @map("product_id")
+  productName          String?   @map("product_name")
+  outletId             String?   @map("outlet_id")
+  level                String?
+  kind                 String?
+  oldValue             Decimal?  @map("old_value") @db.Decimal(18, 4)
+  newValue             Decimal?  @map("new_value") @db.Decimal(18, 4)
+  userId               String?   @map("user_id")
+  userName             String?   @map("user_name")
+  seq                  Int       // insertion order
+
+  @@index([productId])
+  @@map("price_history")
+}
+
+model HeldSale {
+  id                   String    @id
+  reference            String
+  kind                 String
+  outletId             String    @map("outlet_id")
+  cashierId            String?   @map("cashier_id")
+  cashierName          String?   @map("cashier_name")
+  createdAt            String?   @map("created_at")
+  updatedAt            String?   @map("updated_at")
+  label                String?
+  cart                 String?    // JSON
+  seq                  Int       // insertion order
+
+  @@index([outletId])
+  @@index([cashierId])
+  @@map("held_sales")
+}
+
+model StockTransfer {
+  id                   String    @id
+  reference            String    @unique
+  fromOutletId         String    @map("from_outlet_id")
+  toOutletId           String    @map("to_outlet_id")
+  status               String
+  lines                String?    // JSON
+  notes                String?
+  createdAt            String?   @map("created_at")
+  createdBy            String?   @map("created_by")
+  createdById          String?   @map("created_by_id")
+  approvedBy           String?   @map("approved_by")
+  dispatchedAt         String?   @map("dispatched_at")
+  dispatchedBy         String?   @map("dispatched_by")
+  receivedAt           String?   @map("received_at")
+  receivedBy           String?   @map("received_by")
+  discrepancies        String?    // JSON
+  history              String?    // JSON
+  seq                  Int       // insertion order
+
+  @@index([fromOutletId])
+  @@index([toOutletId])
+  @@index([status])
+  @@map("stock_transfers")
 }
 
 model Customer {
@@ -141,8 +289,8 @@ model Customer {
   phone                String?
   email                String?
   outletId             String?   @map("outlet_id")
-  creditLimit          Float?    @map("credit_limit")
-  balance              Float?
+  creditLimit          Decimal?  @map("credit_limit") @db.Decimal(18, 4)
+  balance              Decimal?  @db.Decimal(18, 4)
   status               String?
   createdAt            String?   @map("created_at")
   seq                  Int       // insertion order
@@ -158,7 +306,7 @@ model Supplier {
   email                String?
   pcnLicense           String?   @map("pcn_license")
   paymentTermsDays     Int?      @map("payment_terms_days")
-  balance              Float?
+  balance              Decimal?  @db.Decimal(18, 4)
   status               String?
   categories           String?
   seq                  Int       // insertion order
@@ -174,15 +322,24 @@ model Sale {
   customerName         String?   @map("customer_name")
   cashier              String?
   cashierId            String?   @map("cashier_id")
-  subtotal             Float?
-  discount             Float?
-  vat                  Float?
-  total                Float?
-  amountPaid           Float?    @map("amount_paid")
+  subtotal             Decimal?  @db.Decimal(18, 4)
+  discount             Decimal?  @db.Decimal(18, 4)
+  vat                  Decimal?  @db.Decimal(18, 4)
+  total                Decimal?  @db.Decimal(18, 4)
+  amountPaid           Decimal?  @map("amount_paid") @db.Decimal(18, 4)
   paymentMethod        String?   @map("payment_method")
   status               String?
   prescriptionRef      String?   @map("prescription_ref")
   voidReason           String?   @map("void_reason")
+  payments             String?    // JSON
+  tendered             Decimal?  @db.Decimal(18, 4)
+  change               Decimal?  @db.Decimal(18, 4)
+  globalDiscount       String?   @map("global_discount") // JSON
+  discountAuthorisedBy String?   @map("discount_authorised_by")
+  walkIn               String?   @map("walk_in") // JSON
+  customerKind         String?   @map("customer_kind")
+  heldId               String?   @map("held_id")
+  receiptPrints        Int?      @map("receipt_prints")
   seq                  Int       // insertion order
   lines                SaleLine[]
 
@@ -201,9 +358,14 @@ model SaleLine {
   productName          String?   @map("product_name")
   batchNumbers         String?   @map("batch_numbers") // JSON
   quantity             Int?
-  unitPrice            Float?    @map("unit_price")
-  discount             Float?
-  total                Float?
+  unitPrice            Decimal?  @map("unit_price") @db.Decimal(18, 4)
+  discount             Decimal?  @db.Decimal(18, 4)
+  total                Decimal?  @db.Decimal(18, 4)
+  packagingName        String?   @map("packaging_name")
+  unitsPerPackage      Int?      @map("units_per_package")
+  packQuantity         Float?    @map("pack_quantity")
+  packPrice            Decimal?  @map("pack_price") @db.Decimal(18, 4)
+  allocations          String?    // JSON
   parent               Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   @@id([saleId, position])
@@ -222,8 +384,8 @@ model PurchaseOrder {
   createdById          String?   @map("created_by_id")
   approvedBy           String?   @map("approved_by")
   status               String?
-  total                Float?
-  amountPaid           Float?    @map("amount_paid")
+  total                Decimal?  @db.Decimal(18, 4)
+  amountPaid           Decimal?  @map("amount_paid") @db.Decimal(18, 4)
   notes                String?
   seq                  Int       // insertion order
   lines                PurchaseOrderLine[]
@@ -240,7 +402,7 @@ model PurchaseOrderLine {
   productId            String?   @map("product_id")
   productName          String?   @map("product_name")
   quantity             Int?
-  unitCost             Float?    @map("unit_cost")
+  unitCost             Decimal?  @map("unit_cost") @db.Decimal(18, 4)
   receivedQuantity     Int?      @map("received_quantity")
   parent               PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
 
@@ -259,7 +421,7 @@ model Payment {
   documentRef          String?   @map("document_ref")
   method               String?
   account              String?
-  amount               Float?
+  amount               Decimal?  @db.Decimal(18, 4)
   recordedBy           String?   @map("recorded_by")
   seq                  Int       // insertion order
 
@@ -276,7 +438,7 @@ model Expense {
   description          String?
   vendor               String?
   outletId             String?   @map("outlet_id")
-  amount               Float?
+  amount               Decimal?  @db.Decimal(18, 4)
   status               String?
   requestedBy          String?   @map("requested_by")
   requestedById        String?   @map("requested_by_id")
@@ -323,6 +485,9 @@ model ProductRegistration {
   notes                String?
   updatedBy            String?   @map("updated_by")
   updatedAt            String?   @map("updated_at")
+  status               String?
+  renewalDate          String?   @map("renewal_date")
+  localRepresentative  String?   @map("local_representative")
   seq                  Int       // insertion order
   @@map("product_registrations")
 }
@@ -419,12 +584,12 @@ model SaleReturn {
   processedById        String?   @map("processed_by_id")
   cashier              String?
   cashierId            String?   @map("cashier_id")
-  net                  Float?
-  vat                  Float?
-  total                Float?
+  net                  Decimal?  @db.Decimal(18, 4)
+  vat                  Decimal?  @db.Decimal(18, 4)
+  total                Decimal?  @db.Decimal(18, 4)
   refundMethod         String?   @map("refund_method")
-  refundedAmount       Float?    @map("refunded_amount")
-  creditedAmount       Float?    @map("credited_amount")
+  refundedAmount       Decimal?  @map("refunded_amount") @db.Decimal(18, 4)
+  creditedAmount       Decimal?  @map("credited_amount") @db.Decimal(18, 4)
   reason               String?
   restocked            Boolean?
   seq                  Int       // insertion order
@@ -442,10 +607,10 @@ model SaleReturnLine {
   productId            String?   @map("product_id")
   productName          String?   @map("product_name")
   quantity             Int?
-  unitNet              Float?    @map("unit_net")
-  net                  Float?
-  vat                  Float?
-  total                Float?
+  unitNet              Decimal?  @map("unit_net") @db.Decimal(18, 4)
+  net                  Decimal?  @db.Decimal(18, 4)
+  vat                  Decimal?  @db.Decimal(18, 4)
+  total                Decimal?  @db.Decimal(18, 4)
   parent               SaleReturn @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
 
   @@id([saleReturnId, position])

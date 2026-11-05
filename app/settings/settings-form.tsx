@@ -1,7 +1,9 @@
 "use client";
 
-import { RotateCcw, Save } from "lucide-react";
-import { useState } from "react";
+import { RotateCcw, Save, Trash2, Upload } from "lucide-react";
+import { useRef, useState } from "react";
+
+import { BrandLogo, useBranding } from "@/components/branding";
 
 import { ActionButton, Field, FormError, SelectInput, TextInput } from "@/components/erp/fields";
 import { PageHeader } from "@/components/erp/page-header";
@@ -10,7 +12,7 @@ import { useAction } from "@/components/erp/use-action";
 import type { SystemSettings } from "@/lib/erp/types";
 import { dateTime } from "@/lib/format";
 
-type NumberKey = Exclude<keyof SystemSettings, "businessName" | "expiryIntervals" | "nearExpiryDays" | "impersonation" | "lowStock" | "alertEmail">;
+type NumberKey = Exclude<keyof SystemSettings, "businessName" | "logoFile" | "expiryIntervals" | "nearExpiryDays" | "impersonation" | "lowStock" | "alertEmail">;
 
 const FIELDS: { key: NumberKey; label: string; hint: string; suffix: string; section: string }[] = [
   { key: "vatRate", label: "VAT rate", hint: "Charged on every sale. Nigeria's standard rate is 7.5%.", suffix: "%", section: "Sales & tax" },
@@ -28,15 +30,18 @@ export function SettingsForm({ settings, defaults, history, database }: { settin
   const { run, error, busy } = useAction();
   const toForm = (value: SystemSettings) => Object.fromEntries(Object.entries(value).map(([key, item]) => [key, Array.isArray(item) ? item.join(", ") : String(item)])) as Record<keyof SystemSettings, string>;
   const [form, setForm] = useState(() => toForm(settings));
-  const dirty = (Object.keys(settings) as (keyof SystemSettings)[]).some((key) => toForm(settings)[key] !== form[key]);
+  const dirty = (Object.keys(settings) as (keyof SystemSettings)[]).filter((key) => key !== "logoFile").some((key) => toForm(settings)[key] !== form[key]);
   const sections = Array.from(new Set(FIELDS.map((field) => field.section)));
 
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Administration" title="System settings" description="Organisation-wide rules used by sales, receiving, compliance and security. Changes take effect immediately and are recorded in the audit trail." />
-      <Panel title="General">
-        <div className="max-w-md">
-          <Field label="Business name"><TextInput value={form.businessName} onChange={(event) => setForm((current) => ({ ...current, businessName: event.target.value }))} /></Field>
+      <Panel id="business-profile" title="Branding" description="Shown in the browser tab, on the sign-in page and in the sidebar for everyone.">
+        <div className="grid gap-6 md:grid-cols-2">
+          <Field label="Site title / business name" hint="Save settings below to apply. 3–80 characters.">
+            <TextInput maxLength={80} value={form.businessName} onChange={(event) => setForm((current) => ({ ...current, businessName: event.target.value }))} />
+          </Field>
+          <LogoField />
         </div>
       </Panel>
       <ImpersonationPanel initial={settings.impersonation} />
@@ -102,6 +107,44 @@ export function SettingsForm({ settings, defaults, history, database }: { settin
           <p className="text-sm text-slate-500">No changes yet.</p>
         )}
       </Panel>
+    </div>
+  );
+}
+
+function LogoField() {
+  const { run, error, busy } = useAction();
+  const { logoFile } = useBranding();
+  const input = useRef<HTMLInputElement>(null);
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    const body = new FormData();
+    body.set("file", file);
+    await run("/api/settings/logo", "POST", body);
+    if (input.current) input.current.value = "";
+  }
+  return (
+    <div>
+      <p className="mb-1.5 text-sm font-medium text-slate-200">Logo</p>
+      <div className="flex items-center gap-4">
+        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-slate-800 bg-white p-2">
+          <BrandLogo id="settings-preview" className="h-16 w-16" />
+        </div>
+        <div className="space-y-2">
+          <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => void upload(event.target.files?.[0])} />
+          <div className="flex flex-wrap gap-2">
+            <ActionButton disabled={busy} onClick={() => input.current?.click()}>
+              <Upload className="h-4 w-4" /> {logoFile ? "Replace logo" : "Upload logo"}
+            </ActionButton>
+            {logoFile ? (
+              <ActionButton tone="secondary" disabled={busy} onClick={() => { if (window.confirm("Remove the logo and use the built-in one?")) void run("/api/settings/logo", "DELETE"); }}>
+                <Trash2 className="h-4 w-4" /> Remove
+              </ActionButton>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-500">PNG, JPEG or WebP, up to 512 KB. A square image works best. Applies immediately.</p>
+        </div>
+      </div>
+      <FormError message={error} />
     </div>
   );
 }

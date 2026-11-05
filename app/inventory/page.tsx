@@ -1,6 +1,7 @@
 import { DashboardShell } from "@/components/dashboard-shell";
 import { batches, products, stockMovements } from "@/lib/data";
-import { daysToExpiry, isExpired, outletName, scopeByOutlet } from "@/lib/erp/services";
+import { packagePrice } from "@/lib/erp/packaging";
+import { daysToExpiry, isBatchBlocked, isExpired, outletName, productPackaging, scopeByOutlet } from "@/lib/erp/services";
 import { getStore } from "@/lib/erp/store";
 import { can } from "@/lib/rbac";
 import { requirePage } from "@/lib/session";
@@ -28,7 +29,7 @@ export default async function InventoryPage() {
       quantityReceived: batch.quantityReceived,
       availableQuantity: batch.availableQuantity,
       value: batch.availableQuantity * batch.purchasePrice,
-      state: batch.availableQuantity === 0 ? "Depleted" : isExpired(batch) ? "Expired" : days <= 120 ? "Near expiry" : "Healthy",
+      state: batch.availableQuantity === 0 ? "Depleted" : isExpired(batch) ? "Expired" : isBatchBlocked(batch) ? "Quarantined" : days <= store.settings.nearExpiryDays ? "Near expiry" : "Healthy",
       destructionPending: pendingDestruction.has(batch.id),
     };
   });
@@ -58,7 +59,21 @@ export default async function InventoryPage() {
         deliveries={deliveries}
         items={scopeByOutlet(actor, products, (product) => product.outletId)
           .filter((product) => product.status !== "RESTRICTED")
-          .map((product) => ({ id: product.id, name: product.name, location: outletName(product.outletId), cost: product.purchasePrice }))}
+          .filter((product) => product.lifecycle !== "DISCONTINUED")
+          .map((product) => ({
+            id: product.id,
+            name: product.name,
+            location: outletName(product.outletId),
+            cost: product.purchasePrice,
+            barcodes: [product.barcode, ...(product.barcodes ?? []).map((row) => row.code)].filter(Boolean),
+            packaging: productPackaging(product).map((level) => ({
+              id: level.id,
+              name: level.name,
+              unitsPerPackage: level.unitsPerPackage,
+              cost: packagePrice(level, product, "purchasePrice") ?? product.purchasePrice * level.unitsPerPackage,
+              barcodes: (product.barcodes ?? []).filter((row) => row.packagingId === level.id || (level.isBase && !row.packagingId)).map((row) => row.code),
+            })),
+          }))}
         suppliers={store.suppliers.filter((supplier) => supplier.status === "Approved").map((supplier) => ({ id: supplier.id, name: supplier.name }))}
         scope={actor.outletId ? outletName(actor.outletId) : undefined}
         permissions={{ receive: can(actor, "purchase.receive"), destroy: can(actor, "stock.request") }}

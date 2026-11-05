@@ -1,7 +1,8 @@
 // Sales returns and refunds: partial or full returns against a completed (non-voided) invoice.
 
 import { batches, products, stockMovements } from "@/lib/data";
-import { assertCan, assertOutletAccess, DomainError, isExpired, outletName, recordAudit, refreshProductStatus } from "@/lib/erp/services";
+import { postStock } from "@/lib/erp/ledger";
+import { assertCan, assertOutletAccess, DomainError, isBatchBlocked, outletName, recordAudit } from "@/lib/erp/services";
 import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor, Payment, SaleReturn } from "@/lib/erp/types";
 
@@ -41,8 +42,17 @@ export function createSaleReturn(actor: Actor, saleId: string, input: ReturnInpu
   const vatRatio = net > 0 ? sale.vat / net : 0;
 
   const returnLines = lines.map((line) => {
-    const sold = sale.lines.find((row) => row.productId === line.productId);
-    if (!sold) throw new DomainError("An item is not on this invoice.");
+    // One item may appear on several lines (e.g. a strip and loose tablets); returns are per item in base units.
+    const soldLines = sale.lines.filter((row) => row.productId === line.productId);
+    if (soldLines.length === 0) throw new DomainError("An item is not on this invoice.");
+    const sold = {
+      productId: line.productId,
+      productName: soldLines[0].productName,
+      quantity: soldLines.reduce((sum, row) => sum + row.quantity, 0),
+      total: soldLines.reduce((sum, row) => sum + row.total, 0),
+      batchNumbers: soldLines.flatMap((row) => row.batchNumbers),
+      allocations: soldLines.flatMap((row) => row.allocations ?? []),
+    };
     if (!Number.isInteger(line.quantity)) throw new DomainError("Quantities must be whole numbers.");
     const returnable = sold.quantity - (already[line.productId] ?? 0);
     if (line.quantity > returnable) throw new DomainError(`${sold.productName}: only ${returnable} unit(s) can still be returned.`);
@@ -53,7 +63,7 @@ export function createSaleReturn(actor: Actor, saleId: string, input: ReturnInpu
     const unitNet = sold.total / sold.quantity; // after line discount, before VAT
     const lineNet = round2(unitNet * line.quantity);
     const lineVat = round2(lineNet * vatRatio);
-    return { productId: sold.productId, productName: sold.productName, quantity: line.quantity, unitNet: round2(unitNet), net: lineNet, vat: lineVat, total: round2(lineNet + lineVat), batchNumber: sold.batchNumbers[0] };
+    return { productId: sold.productId, productName: sold.productName, quantity: line.quantity, unitNet: round2(unitNet), net: lineNet, vat: lineVat, total: round2(lineNet + lineVat), batchNumber: sold.batchNumbers[0], batchIds: (sold.allocations ?? []).map((row) => row.batchId) };
   });
 
   const total = round2(returnLines.reduce((sum, line) => sum + line.total, 0));
@@ -74,11 +84,14 @@ export function createSaleReturn(actor: Actor, saleId: string, input: ReturnInpu
   for (const line of returnLines) {
     if (!input.restock) continue;
     const product = products.find((row) => row.id === line.productId);
-    const batch = batches.find((row) => row.batchNumber === line.batchNumber && row.assignedOutletId === sale.outletId && row.productId === line.productId);
-    if (!product || !batch || isExpired(batch)) continue; // expired or unknown batch: not restocked
-    batch.availableQuantity += line.quantity;
-    product.stock += line.quantity;
-    refreshProductStatus(product);
+    // Back into a batch the units were sold from, provided it is still usable (expired or quarantined: not restocked).
+    const candidates = [
+      ...line.batchIds.map((id) => batches.find((row) => row.id === id)),
+      batches.find((row) => row.batchNumber === line.batchNumber && row.assignedOutletId === sale.outletId && row.productId === line.productId),
+    ];
+    const batch = candidates.find((row) => row && !isBatchBlocked(row));
+    if (!product || !batch) continue;
+    postStock(actor, { type: "SALE_RETURN", product, batch, baseQuantity: line.quantity, reference: number, remarks: `Customer return on ${sale.number}: ${input.reason.trim()}` });
     stockMovements.unshift({
       id: `mov-${nextNumber("movement")}`,
       reference: number,
@@ -130,8 +143,9 @@ export function createSaleReturn(actor: Actor, saleId: string, input: ReturnInpu
     processedById: actor.id,
     cashier: sale.cashier,
     cashierId: sale.cashierId,
-    lines: returnLines.map(({ batchNumber: _batch, ...line }) => {
+    lines: returnLines.map(({ batchNumber: _batch, batchIds: _ids, ...line }) => {
       void _batch;
+      void _ids;
       return line;
     }),
     net: round2(returnLines.reduce((sum, line) => sum + line.net, 0)),

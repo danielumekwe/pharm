@@ -8,6 +8,8 @@ const schema = z.object({
   productId: z.string().min(1),
   quantity: z.number().int().positive(),
   toOutletId: z.string().optional(),
+  direction: z.enum(["IN", "OUT"]).optional(),
+  batchId: z.string().optional(),
   reason: z.string().min(3).max(200),
 });
 

@@ -11,7 +11,7 @@ import {
 
 import { connection } from "next/server";
 
-import { BrandMark } from "@/components/brand-logo";
+import { BrandName, BrandWordmark } from "@/components/branding";
 import { LoginForm } from "@/components/login-form";
 import { WelcomeSlides } from "@/components/welcome-slides";
 import { outlets } from "@/lib/data";
@@ -57,15 +57,8 @@ export default async function HomePage() {
 
         <div className="relative max-w-3xl lg:pr-28">
           <div className="hidden items-center gap-4 sm:gap-5 lg:flex">
-            <div className="rounded-2xl bg-white/95 p-1.5 shadow-lg">
-              <BrandMark id="hero" className="h-14 w-14 sm:h-16 sm:w-16" />
-            </div>
-            <div className="h-14 w-px bg-white/40" />
-            <div>
-              <p className="text-2xl font-bold tracking-tight sm:text-4xl">Pharmacy ERP</p>
-              <p className="mt-1 max-w-xs text-sm leading-snug text-emerald-50/90 sm:text-base">
-                Pharmacy Management &amp; Enterprise Resource Planning System
-              </p>
+            <div className="rounded-2xl bg-white/95 px-4 py-2 shadow-lg">
+              <BrandWordmark className="h-14 w-auto sm:h-16" />
             </div>
           </div>
 
@@ -73,7 +66,7 @@ export default async function HomePage() {
             Welcome to
             <br />
             <span className="relative inline-block">
-              Pharmacy ERP
+              <BrandName />
               <svg className="absolute -bottom-3 right-0 h-3 w-3/5" viewBox="0 0 200 12" preserveAspectRatio="none" aria-hidden="true">
                 <path d="M2 10C60 2 140 0 198 6" fill="none" stroke="#a3e635" strokeWidth="4" strokeLinecap="round" />
               </svg>

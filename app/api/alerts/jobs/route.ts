@@ -10,7 +10,7 @@ import { guarded } from "@/lib/session";
 
 const schema = z.object({ job: z.enum(["scan", "daily", "monthly"]) });
 
-async function run(job: "scan" | "daily" | "monthly", trigger?: { id: string; name: string; role: "SUPER_ADMIN" | "PHARMACY_MANAGER" | "REGULATORY_OFFICER" | "SALES_MANAGER" | "STOCK_MANAGER" | "STAFF" }) {
+async function run(job: "scan" | "daily" | "monthly", trigger?: { id: string; name: string; role: "SUPER_ADMIN" | "PHARMACY_MANAGER" | "REGULATORY_OFFICER" | "SALES_MANAGER" | "STOCK_MANAGER" | "CASHIER" | "STAFF" }) {
   if (job === "scan") return { job, created: scanAlerts().length };
   return job === "daily" ? runDailySummary(trigger) : runMonthlyReport(trigger);
 }

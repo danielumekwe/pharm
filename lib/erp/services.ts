@@ -12,6 +12,8 @@ import {
   type Product,
   type StockMovement,
 } from "@/lib/data";
+import { issueFefo, postStock, receiveIntoNewBatch } from "@/lib/erp/ledger";
+import { defaultPackaging, packagePrice } from "@/lib/erp/packaging";
 import { can, isOutletScoped, type Permission } from "@/lib/rbac";
 import { getStore, nextNumber } from "@/lib/erp/store";
 import type {
@@ -24,7 +26,9 @@ import type {
   PaymentMethod,
   PurchaseOrder,
   SaleInvoice,
+  SaleTender,
   Supplier,
+  TenderMethod,
 } from "@/lib/erp/types";
 
 const DAY = 1000 * 60 * 60 * 24;
@@ -56,10 +60,16 @@ export function awaitBeforeCommit(promise: Promise<unknown>) {
   else void promise.catch((error) => console.error("[erp] detached work failed", error));
 }
 
+/**
+ * A refused business operation. API requests that end in a DomainError are rolled back, so a check that fails
+ * halfway never leaves partial changes. Set keepChanges for refusals that must still be recorded (e.g. a
+ * security audit entry for a failed password confirmation).
+ */
 export class DomainError extends Error {
   constructor(
     message: string,
     public status = 400,
+    public keepChanges = false,
   ) {
     super(message);
   }
@@ -148,61 +158,93 @@ export function refreshProductStatus(product: Product) {
   product.status = product.stock <= product.minStock ? "LOW_STOCK" : "ACTIVE";
 }
 
-/** Units that can legally be sold: batches at the outlet that have not expired. */
+const BLOCKING_DISPOSITIONS = new Set(["QUARANTINED", "RETURN_PENDING", "DISPOSAL_PENDING", "RETURNED", "DISPOSED"]);
+
+/** Expired or quarantined stock cannot be sold, issued or transferred. */
+export function isBatchBlocked(batch: BatchRecord, now = Date.now()) {
+  return isExpired(batch, now) || Boolean(batch.disposition && BLOCKING_DISPOSITIONS.has(batch.disposition.status));
+}
+
+/** Base units that can legally be sold: in-date, non-quarantined batches at the outlet. */
 export function sellableQuantity(productId: string, outletId: string) {
   return batches
-    .filter((batch) => batch.productId === productId && batch.assignedOutletId === outletId && !isExpired(batch))
+    .filter((batch) => batch.productId === productId && batch.assignedOutletId === outletId && !isBatchBlocked(batch))
     .reduce((sum, batch) => sum + batch.availableQuantity, 0);
 }
 
-/** First-expiry-first-out allocation across non-expired batches. */
-function allocateFefo(productId: string, outletId: string, quantity: number) {
-  const candidates = batches
-    .filter(
-      (batch) =>
-        batch.productId === productId &&
-        batch.assignedOutletId === outletId &&
-        !isExpired(batch) &&
-        batch.availableQuantity > 0,
-    )
-    .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
+export function productPackaging(product: Product) {
+  return product.packaging?.length ? product.packaging : defaultPackaging(product.uom, product);
+}
 
-  let remaining = quantity;
-  const picks: { batch: BatchRecord; quantity: number }[] = [];
-  for (const batch of candidates) {
-    if (remaining <= 0) break;
-    const take = Math.min(batch.availableQuantity, remaining);
-    picks.push({ batch, quantity: take });
-    remaining -= take;
-  }
-  return { picks, shortfall: remaining };
+export function isSellableLifecycle(product: Product) {
+  return (product.lifecycle ?? "ACTIVE") === "ACTIVE";
 }
 
 export function getSellableCatalog(outletId: string) {
   return products
-    .filter((product) => product.outletId === outletId && product.status !== "RESTRICTED")
+    .filter((product) => product.outletId === outletId && product.status !== "RESTRICTED" && isSellableLifecycle(product))
     .map((product) => ({
       id: product.id,
       name: product.name,
       strength: product.strength,
+      baseUnit: product.baseUnit || product.uom,
       sellingPrice: product.sellingPrice,
       rxOnly: Boolean(product.rxOnly),
       controlled: Boolean(product.controlled),
       available: sellableQuantity(product.id, outletId),
+      barcodes: [product.barcode, ...(product.barcodes ?? []).map((row) => row.code)].filter(Boolean),
+      packaging: productPackaging(product)
+        .filter((level) => level.sellable)
+        .map((level) => ({
+          id: level.id,
+          name: level.name,
+          unitsPerPackage: level.unitsPerPackage,
+          price: packagePrice(level, product, "sellingPrice") ?? product.sellingPrice * level.unitsPerPackage,
+          barcodes: (product.barcodes ?? []).filter((row) => row.packagingId === level.id || (level.isBase && !row.packagingId)).map((row) => row.code),
+        })),
     }));
 }
 
 // ---------------------------------------------------------------- sales
 
+type DiscountInput = { type: "percent" | "amount"; value: number };
+
 export type SaleInput = {
   outletId: string;
   customerId: string | null;
-  paymentMethod: PaymentMethod;
+  /** Legacy single-method field. POS sales send `payments` instead. */
+  paymentMethod?: PaymentMethod;
   amountPaid?: number;
+  /** Tenders (cash, POS terminal, transfer); several make a split payment. */
+  payments?: SaleTender[];
   prescriptionRef?: string;
-  lines: { productId: string; quantity: number; discount?: number }[];
+  /** quantity is in the chosen package (packagingId), or base units when no package is given. */
+  lines: { productId: string; quantity: number; packagingId?: string; discount?: number | DiscountInput }[];
+  /** Transaction-level discount, applied after line discounts and shared across lines. */
+  globalDiscount?: DiscountInput;
+  walkIn?: { name?: string; phone?: string };
+  customerKind?: "Normal" | "Family";
+  /** Held or draft basket being completed (removed once the sale posts). */
+  heldId?: string;
 };
 
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+function discountAmount(discount: number | DiscountInput | undefined, base: number) {
+  if (discount === undefined) return 0;
+  if (typeof discount === "number") return Math.max(0, Math.min(discount, base));
+  if (!(discount.value >= 0)) throw new DomainError("Discounts cannot be negative.");
+  if (discount.type === "percent") {
+    if (discount.value > 100) throw new DomainError("A percentage discount cannot exceed 100%.");
+    return round2((base * discount.value) / 100);
+  }
+  return Math.min(round2(discount.value), base);
+}
+
+/**
+ * Posts a sale. Prices, discounts, VAT, payments and stock are all (re)calculated here from the item master,
+ * never taken from the till; stock leaves FEFO through the ledger inside the request's database transaction.
+ */
 export function createSale(actor: Actor, input: SaleInput) {
   assertCan(actor, "sales.create");
   assertOutletAccess(actor, input.outletId);
@@ -213,40 +255,114 @@ export function createSale(actor: Actor, input: SaleInput) {
   if (outlet.type === "WAREHOUSE") throw new DomainError("Warehouses cannot make retail sales.");
   if (input.lines.length === 0) throw new DomainError("Add at least one item to the sale.");
 
-  const customer = input.customerId ? store.customers.find((row) => row.id === input.customerId) : store.customers[0];
+  const customer = input.customerId ? store.customers.find((row) => row.id === input.customerId) : store.customers.find((row) => row.type === "Walk-in") ?? store.customers[0];
   if (!customer) throw new DomainError("Unknown customer.");
   if (customer.status === "On hold") throw new DomainError(`${customer.name} is on hold. Clear their account before selling.`);
 
   // Validate every line before mutating anything.
+  const requestedUnits = new Map<string, number>();
   const prepared = input.lines.map((line) => {
     const product = products.find((row) => row.id === line.productId && row.outletId === input.outletId);
     if (!product) throw new DomainError("One of the items is not stocked at this outlet.");
     if (product.status === "RESTRICTED") throw new DomainError(`${product.name} is restricted and cannot be sold.`);
+    if (!isSellableLifecycle(product)) throw new DomainError(`${product.name} is ${product.lifecycle?.toLowerCase()} and cannot be sold.`);
     if (!Number.isInteger(line.quantity) || line.quantity <= 0) throw new DomainError(`Invalid quantity for ${product.name}.`);
+    const levels = productPackaging(product);
+    const level = line.packagingId ? levels.find((row) => row.id === line.packagingId) : levels.find((row) => row.isBase);
+    if (!level) throw new DomainError(`Unknown packaging for ${product.name}.`);
+    if (!level.sellable) throw new DomainError(`${product.name} is not sold by the ${level.name.toLowerCase()}.`);
+    const baseQuantity = line.quantity * level.unitsPerPackage;
+    // The same item may be on several lines (e.g. a strip and loose tablets): check the combined quantity.
+    const units = (requestedUnits.get(product.id) ?? 0) + baseQuantity;
+    requestedUnits.set(product.id, units);
     const available = sellableQuantity(product.id, input.outletId);
-    if (line.quantity > available) {
-      throw new DomainError(`Only ${available} sellable unit(s) of ${product.name} (expired batches are quarantined).`);
+    if (units > available) {
+      throw new DomainError(`Only ${available} sellable ${(product.baseUnit || product.uom).toLowerCase()}(s) of ${product.name} (expired and quarantined batches are blocked).`);
     }
-    const discount = Math.max(0, Math.min(line.discount ?? 0, product.sellingPrice * line.quantity));
-    return { product, quantity: line.quantity, discount };
+    const packPrice = packagePrice(level, product, "sellingPrice") ?? product.sellingPrice * level.unitsPerPackage;
+    const gross = round2(packPrice * line.quantity);
+    const discount = discountAmount(line.discount, gross);
+    return { product, level, quantity: line.quantity, baseQuantity, packPrice, gross, discount };
   });
+
+  const subtotal = round2(prepared.reduce((sum, row) => sum + row.gross, 0));
+  // Transaction discount: shared across lines in proportion to their value, so returns refund the right net amount.
+  const afterLines = prepared.reduce((sum, row) => sum + row.gross - row.discount, 0);
+  const globalAmount = input.globalDiscount ? discountAmount(input.globalDiscount, afterLines) : 0;
+  if (globalAmount > 0 && afterLines > 0) {
+    let left = globalAmount;
+    prepared.forEach((row, index) => {
+      const share = index === prepared.length - 1 ? left : round2((globalAmount * (row.gross - row.discount)) / afterLines);
+      row.discount = round2(row.discount + share);
+      left = round2(left - share);
+    });
+  }
+  for (const row of prepared) {
+    const minimum = packagePrice(row.level, row.product, "minSellingPrice");
+    if (minimum !== undefined && (row.gross - row.discount) / row.quantity < minimum - 0.005) {
+      throw new DomainError(`${row.product.name}: the discount takes the ${row.level.name.toLowerCase()} price below the minimum of ₦${minimum.toLocaleString()}.`);
+    }
+  }
+  const discount = round2(prepared.reduce((sum, row) => sum + row.discount, 0));
+
+  // Discount limits: cashiers up to their limit; larger discounts need "sales.discount", up to the approver ceiling.
+  const { cashierMaxDiscountPct, approverMaxDiscountPct } = store.settings.pos;
+  const discountPct = subtotal > 0 ? (discount / subtotal) * 100 : 0;
+  if (discountPct > approverMaxDiscountPct + 0.001) throw new DomainError(`Discounts are limited to ${approverMaxDiscountPct}% of the sale.`);
+  if (discountPct > cashierMaxDiscountPct + 0.001 && !can(actor, "sales.discount")) {
+    throw new DomainError(`Discounts above ${cashierMaxDiscountPct}% need a supervisor with discount authority.`, 403);
+  }
 
   const needsRx = prepared.some(({ product }) => product.rxOnly);
   if (needsRx && !input.prescriptionRef?.trim()) {
     throw new DomainError("This sale contains prescription-only medicines. Enter the prescription reference.");
   }
 
-  const subtotal = prepared.reduce((sum, row) => sum + row.product.sellingPrice * row.quantity, 0);
-  const discount = prepared.reduce((sum, row) => sum + row.discount, 0);
   const vat = Math.round((subtotal - discount) * (store.settings.vatRate / 100));
-  const total = subtotal - discount + vat;
+  const total = round2(subtotal - discount + vat);
 
-  const isCreditSale = input.paymentMethod === "Credit" || input.paymentMethod === "HMO";
-  const amountPaid = isCreditSale ? Math.max(0, Math.min(input.amountPaid ?? 0, total)) : total;
-  const outstanding = total - amountPaid;
+  // Payments.
+  let paymentMethod: PaymentMethod;
+  let amountPaid: number;
+  let tenders: SaleTender[] | undefined;
+  let tendered: number | undefined;
+  let change: number | undefined;
+  if (input.payments?.length) {
+    tenders = input.payments
+      .filter((row) => row.amount > 0)
+      .map((row) => {
+        if (!["Cash", "Card", "Transfer"].includes(row.method)) throw new DomainError("Unknown payment method.");
+        return { method: row.method, amount: round2(row.amount), reference: row.reference?.trim() || undefined };
+      });
+    if (tenders.length === 0) throw new DomainError("Enter the amount received.");
+    const received = round2(tenders.reduce((sum, row) => sum + row.amount, 0));
+    const cash = tenders.filter((row) => row.method === "Cash").reduce((sum, row) => sum + row.amount, 0);
+    const over = round2(received - total);
+    if (over > 0) {
+      // Only cash can be over-tendered; the excess is change.
+      if (over > cash + 0.001) throw new DomainError("Card and transfer payments cannot exceed the amount due.");
+      change = over;
+      tendered = round2(cash);
+      let excess = over;
+      tenders = tenders.map((row) => {
+        if (row.method !== "Cash" || excess <= 0) return row;
+        const reduce = Math.min(row.amount, excess);
+        excess = round2(excess - reduce);
+        return { ...row, amount: round2(row.amount - reduce) };
+      }).filter((row) => row.amount > 0);
+    }
+    amountPaid = Math.min(received, total);
+    paymentMethod = new Set(tenders.map((row) => row.method)).size > 1 ? "Split" : tenders[0].method;
+  } else {
+    paymentMethod = input.paymentMethod ?? "Cash";
+    if (paymentMethod === "Split") throw new DomainError("Enter the amounts for a split payment.");
+    const isCreditSale = paymentMethod === "Credit" || paymentMethod === "HMO";
+    amountPaid = isCreditSale ? Math.max(0, Math.min(input.amountPaid ?? 0, total)) : total;
+  }
+  const outstanding = round2(total - amountPaid);
 
-  if (outstanding > 0) {
-    if (customer.type === "Walk-in") throw new DomainError("Walk-in customers must pay in full.");
+  if (outstanding > 0.001) {
+    if (customer.type === "Walk-in") throw new DomainError(`Payment is ₦${outstanding.toLocaleString()} short. Walk-in customers must pay in full.`);
     if (customer.balance + outstanding > customer.creditLimit) {
       throw new DomainError(
         `Credit limit exceeded for ${customer.name}: ₦${(customer.balance + outstanding).toLocaleString()} of ₦${customer.creditLimit.toLocaleString()}.`,
@@ -255,11 +371,15 @@ export function createSale(actor: Actor, input: SaleInput) {
   }
 
   const number = `INV-${String(nextNumber("sale")).padStart(5, "0")}`;
-  const lines = prepared.map(({ product, quantity, discount: lineDiscount }) => {
-    const { picks } = allocateFefo(product.id, input.outletId, quantity);
-    for (const pick of picks) pick.batch.availableQuantity -= pick.quantity;
-    product.stock = Math.max(0, product.stock - quantity);
-    refreshProductStatus(product);
+  const lines = prepared.map(({ product, level, quantity, baseQuantity, packPrice, gross, discount: lineDiscount }) => {
+    const picks = issueFefo(actor, {
+      type: "SALE",
+      product,
+      baseQuantity,
+      reference: number,
+      remarks: `Retail sale${level.isBase ? "" : ` (${quantity} × ${level.name})`}`,
+      unit: { name: level.name, unitsPerPackage: level.unitsPerPackage },
+    });
 
     stockMovements.unshift({
       id: `mov-${nextNumber("movement")}`,
@@ -267,8 +387,9 @@ export function createSale(actor: Actor, input: SaleInput) {
       date: new Date().toISOString().slice(0, 10),
       type: "Issue",
       outletId: input.outletId,
+      productId: product.id,
       productName: product.name,
-      quantity,
+      quantity: baseQuantity,
       status: "Approved",
       reason: "Retail sale",
       requestedBy: actor.name,
@@ -279,20 +400,26 @@ export function createSale(actor: Actor, input: SaleInput) {
       productId: product.id,
       productName: product.name,
       batchNumbers: picks.map((pick) => pick.batch.batchNumber),
-      quantity,
-      unitPrice: product.sellingPrice,
+      quantity: baseQuantity,
+      unitPrice: round2(packPrice / level.unitsPerPackage),
       discount: lineDiscount,
-      total: product.sellingPrice * quantity - lineDiscount,
+      total: round2(gross - lineDiscount),
+      packagingName: level.name,
+      unitsPerPackage: level.unitsPerPackage,
+      packQuantity: quantity,
+      packPrice,
+      allocations: picks.map((pick) => ({ batchId: pick.batch.id, batchNumber: pick.batch.batchNumber, quantity: pick.quantity })),
     };
   });
 
+  const walkIn = input.walkIn && (input.walkIn.name?.trim() || input.walkIn.phone?.trim()) ? { name: input.walkIn.name?.trim() || undefined, phone: input.walkIn.phone?.trim() || undefined } : undefined;
   const sale: SaleInvoice = {
-    id: `sale-${Date.now()}`,
+    id: `sale-${Date.now()}${nextNumber("saleId")}`,
     number,
     date: new Date().toISOString(),
     outletId: input.outletId,
     customerId: customer.id,
-    customerName: customer.name,
+    customerName: customer.type === "Walk-in" && walkIn?.name ? `${walkIn.name} (walk-in)` : customer.name,
     cashier: actor.name,
     cashierId: actor.id,
     lines,
@@ -301,29 +428,45 @@ export function createSale(actor: Actor, input: SaleInput) {
     vat,
     total,
     amountPaid,
-    paymentMethod: input.paymentMethod,
-    status: amountPaid >= total ? "Paid" : amountPaid > 0 ? "Partially paid" : "Unpaid",
+    paymentMethod,
+    status: amountPaid >= total - 0.001 ? "Paid" : amountPaid > 0 ? "Partially paid" : "Unpaid",
     prescriptionRef: input.prescriptionRef?.trim() || undefined,
+    payments: tenders,
+    tendered,
+    change,
+    globalDiscount: input.globalDiscount && globalAmount > 0 ? { ...input.globalDiscount, amount: globalAmount } : undefined,
+    discountAuthorisedBy: discount > 0 ? actor.name : undefined,
+    walkIn,
+    customerKind: input.customerKind,
+    heldId: input.heldId,
+    receiptPrints: 0,
   };
 
   store.sales.unshift(sale);
-  customer.balance += outstanding;
+  customer.balance = round2(customer.balance + outstanding);
 
-  if (amountPaid > 0) {
+  const account = (method: string) => (method === "Cash" ? "Cash till" : method === "Card" ? "POS settlement ••0912" : "GTBank ••2231");
+  const receipts = tenders ?? (amountPaid > 0 ? [{ method: (paymentMethod === "Credit" || paymentMethod === "HMO" ? "Transfer" : paymentMethod) as TenderMethod, amount: amountPaid }] : []);
+  for (const tender of receipts) {
     store.payments.unshift({
-      id: `pay-${Date.now()}`,
+      id: `pay-${Date.now()}-${nextNumber("payment")}`,
       reference: `RCT-${String(nextNumber("payment")).padStart(5, "0")}`,
       date: sale.date,
       direction: "IN",
       partyType: "Customer",
       partyId: customer.id,
-      partyName: customer.name,
+      partyName: sale.customerName,
       documentRef: number,
-      method: isCreditSale ? "Transfer" : (input.paymentMethod as Payment["method"]),
-      account: input.paymentMethod === "Cash" ? "Cash till" : input.paymentMethod === "Card" ? "POS settlement ••0912" : "GTBank ••2231",
-      amount: amountPaid,
+      method: tender.method,
+      account: account(tender.method),
+      amount: tender.amount,
       recordedBy: actor.name,
     });
+  }
+
+  if (input.heldId) {
+    const index = store.heldSales.findIndex((row) => row.id === input.heldId && row.outletId === input.outletId);
+    if (index >= 0) store.heldSales.splice(index, 1);
   }
 
   const controlled = prepared.filter(({ product }) => product.controlled);
@@ -331,9 +474,19 @@ export function createSale(actor: Actor, input: SaleInput) {
     action: "sale.create",
     entity: "SaleInvoice",
     entityId: sale.id,
-    summary: `${number} · ₦${total.toLocaleString()} · ${customer.name} (${input.paymentMethod})`,
+    summary: `${number} · ₦${total.toLocaleString()} · ${sale.customerName} (${tenders ? tenders.map((row) => `${row.method} ₦${row.amount.toLocaleString()}`).join(" + ") : paymentMethod})${change ? ` · change ₦${change.toLocaleString()}` : ""}`,
     outletId: input.outletId,
   });
+  if (discount > 0) {
+    recordAudit(actor, {
+      action: "sale.discount",
+      entity: "SaleInvoice",
+      entityId: sale.id,
+      summary: `${number}: discount ₦${discount.toLocaleString()} (${discountPct.toFixed(1)}% of ₦${subtotal.toLocaleString()}) authorised by ${actor.name}${sale.globalDiscount ? ` · basket ${sale.globalDiscount.type === "percent" ? `${sale.globalDiscount.value}%` : `₦${sale.globalDiscount.value.toLocaleString()}`}` : ""}`,
+      outletId: input.outletId,
+      severity: discountPct > cashierMaxDiscountPct ? "warning" : "info",
+    });
+  }
   if (controlled.length) {
     recordAudit(actor, {
       action: "compliance.controlled-sale",
@@ -346,6 +499,28 @@ export function createSale(actor: Actor, input: SaleInput) {
   }
 
   return sale;
+}
+
+/**
+ * How a sale was settled, as amounts per method. Split sales list their tenders; older sales put the whole total
+ * on their single method. Anything not yet paid on credit/HMO/account sales is reported as "Account".
+ */
+export function saleTenders(sale: SaleInvoice): { method: "Cash" | "Card" | "Transfer" | "Credit" | "HMO" | "Account"; amount: number }[] {
+  if (sale.payments?.length) {
+    const rows: { method: "Cash" | "Card" | "Transfer" | "Account"; amount: number }[] = sale.payments.map((row) => ({ method: row.method, amount: row.amount }));
+    const owed = round2(sale.total - sale.payments.reduce((sum, row) => sum + row.amount, 0));
+    if (owed > 0) rows.push({ method: "Account", amount: owed });
+    return rows;
+  }
+  const method = sale.paymentMethod === "Split" ? "Cash" : sale.paymentMethod;
+  return [{ method, amount: sale.total }];
+}
+
+/** Sales the actor may see: their outlet(s), and only their own unless they supervise cashiers. */
+export function visibleSales(actor: Actor) {
+  const rows = scopeByOutlet(actor, getStore().sales, (sale) => sale.outletId);
+  if (can(actor, "sales.supervise")) return rows;
+  return rows.filter((sale) => sale.cashierId === actor.id || (!sale.cashierId && sale.cashier === actor.name));
 }
 
 export function voidSale(actor: Actor, saleId: string, reason: string) {
@@ -362,13 +537,16 @@ export function voidSale(actor: Actor, saleId: string, reason: string) {
 
   for (const line of sale.lines) {
     const product = products.find((row) => row.id === line.productId);
-    if (product) {
-      product.stock += line.quantity;
-      refreshProductStatus(product);
+    if (!product) continue;
+    // Units go back to the exact batches they were drawn from (older sales: the first batch listed).
+    const allocations = line.allocations?.length
+      ? line.allocations
+      : [{ batchId: batches.find((row) => row.productId === product.id && row.batchNumber === line.batchNumbers[0])?.id ?? "", batchNumber: line.batchNumbers[0], quantity: line.quantity }];
+    for (const allocation of allocations) {
+      const batch = batches.find((row) => row.id === allocation.batchId);
+      if (!batch || allocation.quantity <= 0) continue;
+      postStock(actor, { type: "SALE_VOID", product, batch, baseQuantity: allocation.quantity, reference: `VOID-${sale.number}`, remarks: `Void: ${reason}` });
     }
-    // Return units to the first batch they were drawn from.
-    const batch = batches.find((row) => line.batchNumbers[0] && row.batchNumber === line.batchNumbers[0]);
-    if (batch) batch.availableQuantity += line.quantity;
 
     stockMovements.unshift({
       id: `mov-${nextNumber("movement")}`,
@@ -376,6 +554,7 @@ export function voidSale(actor: Actor, saleId: string, reason: string) {
       date: new Date().toISOString().slice(0, 10),
       type: "Return",
       outletId: sale.outletId,
+      productId: product.id,
       productName: line.productName,
       quantity: line.quantity,
       status: "Approved",
@@ -480,13 +659,35 @@ export function createPurchaseOrder(actor: Actor, input: PurchaseOrderInput) {
   return order;
 }
 
-export type ReceiptLine = { productId: string; quantity: number; batchNumber: string; expiryDate: string; manufacturingDate?: string };
+export type ReceiptLine = {
+  productId: string;
+  quantity: number;
+  batchNumber: string;
+  expiryDate: string;
+  manufacturingDate?: string;
+  supplierBatchRef?: string;
+  regulatoryNumber?: string;
+};
+
+/** Opens an item record at another outlet with the same master data and zero stock. */
+export function cloneProductForOutlet(template: Product, outletId: string) {
+  const copy: Product = {
+    ...structuredClone(template),
+    id: `prod-${Date.now().toString(36)}-${outletId}`,
+    stock: 0,
+    status: template.status === "RESTRICTED" ? "RESTRICTED" : "LOW_STOCK",
+    outletId,
+  };
+  products.push(copy);
+  return copy;
+}
 
 export function transitionPurchaseOrder(
   actor: Actor,
   orderId: string,
   action: "submit" | "approve" | "cancel" | "receive",
   receipt: ReceiptLine[] = [],
+  invoiceNumber?: string,
 ) {
   const store = getStore();
   const order = store.purchaseOrders.find((row) => row.id === orderId);
@@ -528,7 +729,7 @@ export function transitionPurchaseOrder(
       if (order.status !== "Approved" && order.status !== "Partially received") {
         throw new DomainError("Goods can only be received against an approved PO.");
       }
-      receiveGoods(actor, order, receipt);
+      receiveGoods(actor, order, receipt, invoiceNumber);
       break;
     }
   }
@@ -546,7 +747,7 @@ export function transitionPurchaseOrder(
   return order;
 }
 
-function receiveGoods(actor: Actor, order: PurchaseOrder, receipt: ReceiptLine[]) {
+function receiveGoods(actor: Actor, order: PurchaseOrder, receipt: ReceiptLine[], invoiceNumber?: string) {
   const lines = receipt.filter((line) => line.quantity > 0);
   if (lines.length === 0) throw new DomainError("Enter a received quantity for at least one line.");
 
@@ -577,29 +778,29 @@ function receiveGoods(actor: Actor, order: PurchaseOrder, receipt: ReceiptLine[]
     let product = products.find((row) => row.name === template.name && row.outletId === order.outletId);
     if (!product) {
       // First receipt of this item at the location: open a location-level item record.
-      product = { ...template, id: `prod-${Date.now()}-${line.productId}`, stock: 0, outletId: order.outletId };
-      products.push(product);
+      product = cloneProductForOutlet(template, order.outletId);
     }
+    if (product.lifecycle === "DISCONTINUED") throw new DomainError(`${product.name} is discontinued and cannot be received.`);
 
-    product.stock += line.quantity;
-    refreshProductStatus(product);
     poLine.receivedQuantity += line.quantity;
     receivedValue += line.quantity * poLine.unitCost;
 
-    batches.unshift({
-      id: `batch-${Date.now()}-${line.productId}`,
-      batchNumber: line.batchNumber.trim().toUpperCase(),
-      productId: product.id,
-      productName: product.name,
-      supplier: order.supplierName,
-      assignedOutletId: order.outletId,
-      receivingDate: today,
-      manufacturingDate: line.manufacturingDate || today,
-      expiryDate: line.expiryDate,
-      quantityReceived: line.quantity,
-      availableQuantity: line.quantity,
-      purchasePrice: poLine.unitCost,
-    });
+    receiveIntoNewBatch(
+      actor,
+      product,
+      {
+        batchNumber: line.batchNumber.trim().toUpperCase(),
+        manufacturingDate: line.manufacturingDate || today,
+        expiryDate: line.expiryDate,
+        receivingDate: today,
+        supplier: order.supplierName,
+        supplierId: order.supplierId,
+        supplierBatchRef: line.supplierBatchRef?.trim(),
+        regulatoryNumber: line.regulatoryNumber?.trim().toUpperCase(),
+        unitCost: poLine.unitCost,
+      },
+      { type: "RECEIVE", baseQuantity: line.quantity, reference: grn, remarks: `Receipt against ${order.number}` },
+    );
 
     stockMovements.unshift({
       id: `mov-${nextNumber("movement")}`,
@@ -607,9 +808,12 @@ function receiveGoods(actor: Actor, order: PurchaseOrder, receipt: ReceiptLine[]
       date: today,
       type: "Receive",
       outletId: order.outletId,
+      productId: product.id,
       productName: product.name,
       quantity: line.quantity,
       status: "Approved",
+      invoiceNumber: invoiceNumber?.trim() || undefined,
+      purchaseReference: order.number,
       reason: `Receipt against ${order.number}`,
       requestedBy: actor.name,
       approvedBy: actor.name,
@@ -666,6 +870,7 @@ export function createSupplier(
   input: { name: string; contactPerson: string; phone: string; email: string; pcnLicense: string; paymentTermsDays: number; categories: string },
 ) {
   assertCan(actor, "contacts.manage");
+  if (!can(actor, "purchase.create") && !can(actor, "purchase.approve")) throw new DomainError("Suppliers are added by purchasing staff.", 403);
   const store = getStore();
   if (input.name.trim().length < 2) throw new DomainError("Supplier name is required.");
   const number = nextNumber("supplier");
@@ -882,28 +1087,45 @@ export function transitionExpense(actor: Actor, expenseId: string, action: "appr
 
 // ---------------------------------------------------------------- stock movements
 
-export function requestStockMovement(
-  actor: Actor,
-  input: { type: StockMovement["type"]; productId: string; quantity: number; toOutletId?: string; reason: string },
-) {
+export type StockMovementRequest = {
+  type: StockMovement["type"];
+  productId: string;
+  /** Base units. */
+  quantity: number;
+  toOutletId?: string;
+  reason: string;
+  /** Adjustments: IN adds counted stock to a batch, OUT (default) removes it. */
+  direction?: "IN" | "OUT";
+  /** Batch to adjust or return into (required for IN adjustments). */
+  batchId?: string;
+};
+
+export function requestStockMovement(actor: Actor, input: StockMovementRequest) {
   assertCan(actor, "stock.request");
   const product = products.find((row) => row.id === input.productId);
   if (!product) throw new DomainError("Unknown item.");
   assertOutletAccess(actor, product.outletId);
   if (!Number.isInteger(input.quantity) || input.quantity <= 0) throw new DomainError("Quantity must be a positive whole number.");
   if (!input.reason.trim()) throw new DomainError("A reason is required for every stock movement.");
-  if (input.type === "Transfer") {
-    if (!input.toOutletId || input.toOutletId === product.outletId) throw new DomainError("Choose a different destination location.");
-    if (!outlets.some((row) => row.id === input.toOutletId)) throw new DomainError("Unknown destination.");
+  if (input.type === "Receive") throw new DomainError("Stock is received through a goods receipt, not a movement request.");
+  if (input.type === "Transfer") throw new DomainError("Inter-outlet transfers go through Stock Transfers (request, approval, dispatch and receipt).");
+  const direction = input.type === "Adjustment" ? (input.direction ?? "OUT") : undefined;
+  if (input.batchId) {
+    const batch = batches.find((row) => row.id === input.batchId);
+    if (!batch || batch.productId !== product.id) throw new DomainError("Choose a batch of this item.");
   }
-  if (input.type === "Adjustment" && input.quantity > product.stock) {
+  if ((direction === "IN" || input.type === "Return") && !input.batchId && !batches.some((row) => row.productId === product.id && !isBatchBlocked(row))) {
+    throw new DomainError("Choose the batch the stock goes back into.");
+  }
+  if (direction === "IN" && !input.batchId) throw new DomainError("Choose the batch the counted stock belongs to.");
+  if (direction === "OUT" && input.quantity > product.stock) {
     throw new DomainError(`Only ${product.stock} unit(s) of ${product.name} on hand.`);
   }
-  // Normal issues and transfers may only use in-date stock; expired batches are blocked.
-  if (input.type === "Transfer" || input.type === "Issue") {
+  // Normal issues may only use in-date stock; expired and quarantined batches are blocked.
+  if (input.type === "Issue") {
     const sellable = sellableQuantity(product.id, product.outletId);
     if (input.quantity > sellable) {
-      throw new DomainError(`Only ${sellable} in-date unit(s) of ${product.name} can be ${input.type === "Issue" ? "issued" : "transferred"}; expired stock is blocked and stays in quarantine.`);
+      throw new DomainError(`Only ${sellable} usable unit(s) of ${product.name} can be issued; expired and quarantined stock is blocked.`);
     }
   }
 
@@ -913,10 +1135,12 @@ export function requestStockMovement(
     reference: `${prefix}-${Date.now().toString().slice(-5)}`,
     type: input.type,
     outletId: product.outletId,
-    toOutletId: input.type === "Transfer" ? input.toOutletId : undefined,
+    productId: product.id,
     productName: product.name,
     quantity: input.quantity,
     status: "Pending",
+    batchId: input.batchId,
+    direction,
     reason: input.reason.trim(),
     requestedBy: actor.name,
   });
@@ -925,11 +1149,18 @@ export function requestStockMovement(
     action: "stock.request",
     entity: "StockMovement",
     entityId: movement.id,
-    summary: `${movement.reference}: ${input.type} ${input.quantity} × ${product.name}${input.toOutletId ? ` → ${outletName(input.toOutletId)}` : ""} (${input.reason.trim()})`,
+    summary: `${movement.reference}: ${input.type}${direction === "IN" ? " (+)" : ""} ${input.quantity} × ${product.name}${input.toOutletId ? ` → ${outletName(input.toOutletId)}` : ""} (${input.reason.trim()})`,
     outletId: product.outletId,
     severity: product.controlled ? "warning" : "info",
   });
   return movement;
+}
+
+function movementProduct(movement: StockMovement) {
+  return (
+    (movement.productId ? products.find((row) => row.id === movement.productId) : undefined) ??
+    products.find((row) => row.name === movement.productName && row.outletId === movement.outletId)
+  );
 }
 
 export function decideStockMovement(actor: Actor, movementId: string, status: "Approved" | "Rejected") {
@@ -937,23 +1168,26 @@ export function decideStockMovement(actor: Actor, movementId: string, status: "A
   const movement = stockMovements.find((row) => row.id === movementId);
   if (!movement) throw new DomainError("Movement not found.", 404);
   if (movement.status !== "Pending") throw new DomainError("This movement has already been decided.");
+  // Outlet staff decide only their own outlet's movements; changing another outlet's stock needs central scope.
   if (isOutletScoped(actor.role) && actor.outletId !== movement.outletId && actor.outletId !== movement.toOutletId) {
     throw new DomainError("You can only approve movements for your outlet.", 403);
   }
   if (movement.requestedBy && movement.requestedBy === actor.name && actor.role !== "SUPER_ADMIN") {
     throw new DomainError("Maker-checker: a movement must be approved by someone other than the requester.", 403);
   }
-  const product = products.find((row) => row.name === movement.productName && row.outletId === movement.outletId);
-  if (status === "Approved" && movement.type !== "Receive" && movement.type !== "Return" && product && movement.quantity > product.stock) {
+  const product = movementProduct(movement);
+  const outbound = movement.type === "Transfer" || movement.type === "Issue" || (movement.type === "Adjustment" && movement.direction !== "IN");
+  if (status === "Approved" && !product) throw new DomainError("The item on this movement no longer exists at the outlet.");
+  if (status === "Approved" && product && outbound && movement.quantity > product.stock) {
     throw new DomainError(`Insufficient stock: ${product.stock} on hand.`);
   }
   if (status === "Approved" && (movement.type === "Transfer" || movement.type === "Issue") && product) {
     const sellable = sellableQuantity(product.id, product.outletId);
-    if (movement.quantity > sellable) throw new DomainError(`Only ${sellable} in-date unit(s) available to transfer.`);
+    if (movement.quantity > sellable) throw new DomainError(`Only ${sellable} usable unit(s) available.`);
   }
 
   if (status === "Approved" && product) {
-    applyBatchMovement(movement, product);
+    applyApprovedMovement(actor, movement, product);
   }
 
   const updated = updateStockMovementStatus(movementId, status, actor.name);
@@ -993,56 +1227,58 @@ export function decideStockMovement(actor: Actor, movementId: string, status: "A
   return updated;
 }
 
-
-/** Keeps batch quantities in step with an approved movement (item totals are reconciled in lib/data). */
-function applyBatchMovement(movement: StockMovement, product: Product) {
+/** Posts the ledger rows for an approved movement. */
+function applyApprovedMovement(actor: Actor, movement: StockMovement, product: Product) {
+  const posting = { reference: movement.reference, remarks: movement.reason, movementId: movement.id };
   const atSource = batches.filter((batch) => batch.productId === product.id && batch.assignedOutletId === product.outletId);
 
-  if (movement.type === "Return" || movement.type === "Receive") {
-    const target = atSource.filter((batch) => !isExpired(batch)).sort((a, b) => b.expiryDate.localeCompare(a.expiryDate))[0];
-    if (target) target.availableQuantity += movement.quantity;
+  if (movement.type === "Return" || (movement.type === "Adjustment" && movement.direction === "IN")) {
+    const target =
+      atSource.find((batch) => batch.id === movement.batchId) ??
+      atSource.filter((batch) => !isBatchBlocked(batch)).sort((a, b) => b.expiryDate.localeCompare(a.expiryDate))[0];
+    if (!target) throw new DomainError("There is no batch to return this stock into. Record it as a goods receipt instead.");
+    postStock(actor, { ...posting, type: "ADJUSTMENT_IN", product, batch: target, baseQuantity: movement.quantity });
     return;
   }
 
   if (movement.type === "Transfer") {
     if (!movement.toOutletId) return;
-    let destination = products.find((row) => row.name === product.name && row.outletId === movement.toOutletId);
-    if (!destination) {
-      // First stock of this item at the destination: open a location-level item record (credited by reconciliation).
-      destination = { ...product, id: `prod-${Date.now()}-${movement.toOutletId}`, stock: 0, outletId: movement.toOutletId };
-      products.push(destination);
-    }
-    const { picks } = allocateFefo(product.id, product.outletId, movement.quantity);
+    const destination = products.find((row) => row.name === product.name && row.outletId === movement.toOutletId) ?? cloneProductForOutlet(product, movement.toOutletId);
+    const picks = issueFefo(actor, { ...posting, type: "TRANSFER_OUT", product, baseQuantity: movement.quantity });
     for (const pick of picks) {
-      pick.batch.availableQuantity -= pick.quantity;
-      const existing = batches.find(
-        (batch) => batch.productId === destination!.id && batch.batchNumber === pick.batch.batchNumber && batch.assignedOutletId === movement.toOutletId,
-      );
+      // Same batch number and expiry travel with the stock, so traceability is kept at the destination.
+      const existing = batches.find((batch) => batch.productId === destination.id && batch.batchNumber === pick.batch.batchNumber && batch.assignedOutletId === movement.toOutletId);
       if (existing) {
-        existing.availableQuantity += pick.quantity;
+        postStock(actor, { ...posting, type: "TRANSFER_IN", product: destination, batch: existing, baseQuantity: pick.quantity });
       } else {
-        batches.unshift({
-          ...pick.batch,
-          id: `batch-${Date.now()}-${pick.batch.id}`,
-          productId: destination.id,
-          assignedOutletId: movement.toOutletId,
-          receivingDate: new Date().toISOString().slice(0, 10),
-          quantityReceived: pick.quantity,
-          availableQuantity: pick.quantity,
-        });
+        receiveIntoNewBatch(
+          actor,
+          destination,
+          {
+            batchNumber: pick.batch.batchNumber,
+            manufacturingDate: pick.batch.manufacturingDate,
+            expiryDate: pick.batch.expiryDate,
+            supplier: pick.batch.supplier,
+            supplierId: pick.batch.supplierId,
+            supplierBatchRef: pick.batch.supplierBatchRef,
+            regulatoryNumber: pick.batch.regulatoryNumber,
+            unitCost: pick.batch.purchasePrice,
+          },
+          { ...posting, type: "TRANSFER_IN", baseQuantity: pick.quantity, remarks: `${movement.reason ?? "Transfer"} (from ${outletName(movement.outletId)})` },
+        );
       }
     }
     return;
   }
 
   if (movement.type === "Issue") {
-    // Normal issuance never draws from expired batches.
-    const { picks } = allocateFefo(product.id, product.outletId, movement.quantity);
-    for (const pick of picks) pick.batch.availableQuantity -= pick.quantity;
+    // Normal issuance never draws from expired or quarantined batches.
+    issueFefo(actor, { ...posting, type: "ISSUE", product, baseQuantity: movement.quantity });
     return;
   }
 
-  // Adjustment (write-off): a named batch first (e.g. destruction), then expired batches, then first-expiry-first-out.
+  // Adjustment out / write-off: a named batch first (e.g. destruction), then expired batches, then first-expiry-first-out.
+  const type = movement.disposition === "DISPOSAL" ? "WRITE_OFF" : movement.disposition === "RETURN" ? "SUPPLIER_RETURN" : "ADJUSTMENT_OUT";
   let remaining = movement.quantity;
   const ordered = [...atSource].sort(
     (a, b) =>
@@ -1053,9 +1289,11 @@ function applyBatchMovement(movement: StockMovement, product: Product) {
   for (const batch of ordered) {
     if (remaining <= 0) break;
     const take = Math.min(batch.availableQuantity, remaining);
-    batch.availableQuantity -= take;
+    if (take <= 0) continue;
+    postStock(actor, { ...posting, type, product, batch, baseQuantity: take });
     remaining -= take;
   }
+  if (remaining > 0) throw new DomainError(`Insufficient stock: ${movement.quantity - remaining} unit(s) on hand.`);
 }
 
 // ---------------------------------------------------------------- read models

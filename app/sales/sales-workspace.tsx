@@ -1,7 +1,8 @@
 "use client";
 
-import { Banknote, Eye, PlusCircle, Receipt, RotateCcw, ShoppingCart, Trash2, Users, XCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { Banknote, Eye, Printer, Receipt, RotateCcw, ShoppingCart, Undo2, XCircle } from "lucide-react";
+import { useState } from "react";
 
 import { DataTable, type Column } from "@/components/erp/data-table";
 import { ActionButton, Field, FormError, SelectInput, TextInput } from "@/components/erp/fields";
@@ -10,325 +11,144 @@ import { PageHeader } from "@/components/erp/page-header";
 import { Panel, StatGrid } from "@/components/erp/stat-card";
 import { StatusBadge } from "@/components/erp/status-badge";
 import { useAction } from "@/components/erp/use-action";
-import type { PaymentMethod, SaleInvoice } from "@/lib/erp/types";
-import { compactMoney, dateTime, money } from "@/lib/format";
+import type { HistoryRow } from "@/lib/erp/pos";
+import type { SaleInvoice } from "@/lib/erp/types";
+import { dateTime, money } from "@/lib/format";
 
-type CatalogItem = { id: string; name: string; strength: string; sellingPrice: number; rxOnly: boolean; controlled: boolean; available: number };
-type CustomerOption = { id: string; name: string; type: string; status: string; available: number };
+type Filters = { from: string; to: string; outletId: string; cashierId: string; method: string; status: string };
+type Totals = { transactions: number; gross: number; discount: number; returns: number; net: number; voided: number };
 
-const METHODS: PaymentMethod[] = ["Cash", "Card", "Transfer", "Credit", "HMO"];
+const METHOD_OPTIONS = [
+  { value: "Cash", label: "Cash" },
+  { value: "Card", label: "POS terminal" },
+  { value: "Transfer", label: "Bank transfer" },
+  { value: "Credit", label: "Credit" },
+  { value: "HMO", label: "HMO" },
+  { value: "Account", label: "On account" },
+];
 
 export function SalesWorkspace({
-  returned,
-  vatRate,
-  totalCount,
+  rows,
   sales,
-  kpis,
+  totals,
+  filters,
+  returned,
   outlets,
-  catalog,
-  customers,
+  cashiers,
+  initialQuery,
   scope,
+  ownOnly,
   canCreate,
   canVoid,
 }: {
+  rows: HistoryRow[];
+  sales: Record<string, SaleInvoice>;
+  totals: Totals;
+  filters: Filters;
   returned: Record<string, Record<string, number>>;
-  vatRate: number;
-  totalCount: number;
-  sales: SaleInvoice[];
-  kpis: { todaySales: number; gross: number; count: number; avgBasket: number; receivable: number; voided: number };
   outlets: { id: string; name: string }[];
-  catalog: Record<string, CatalogItem[]>;
-  customers: CustomerOption[];
+  cashiers: { id: string; name: string }[];
+  initialQuery: string;
   scope?: string;
+  ownOnly: boolean;
   canCreate: boolean;
   canVoid: boolean;
 }) {
-  const [creating, setCreating] = useState(false);
   const [viewing, setViewing] = useState<SaleInvoice | null>(null);
   const [voiding, setVoiding] = useState<SaleInvoice | null>(null);
   const [returning, setReturning] = useState<SaleInvoice | null>(null);
   const outletLabel = (id: string) => outlets.find((outlet) => outlet.id === id)?.name ?? id;
 
-  const columns: Column<SaleInvoice>[] = [
-    { key: "number", header: "Invoice", value: (row) => row.number, render: (row) => <span className="font-mono text-xs text-white">{row.number}</span> },
-    { key: "date", header: "Date", value: (row) => row.date, render: (row) => <span className="text-slate-400">{dateTime(row.date)}</span> },
-    { key: "outlet", header: "Outlet", value: (row) => outletLabel(row.outletId), render: (row) => outletLabel(row.outletId).replace(/^Outlet \d - /, "") },
-    {
-      key: "customer",
-      header: "Customer",
-      value: (row) => row.customerName,
-      render: (row) => (
-        <div>
-          <p className="text-white">{row.customerName}</p>
-          {row.prescriptionRef ? <p className="text-[11px] text-sky-300">Rx {row.prescriptionRef}</p> : null}
-        </div>
-      ),
-    },
-    { key: "items", header: "Items", value: (row) => row.lines.reduce((sum, line) => sum + line.quantity, 0), align: "right", render: (row) => row.lines.reduce((sum, line) => sum + line.quantity, 0) },
-    { key: "total", header: "Total", value: (row) => row.total, align: "right", render: (row) => <span className="font-medium text-white">{money(row.total)}</span> },
-    { key: "due", header: "Balance", value: (row) => (row.status === "Voided" ? 0 : row.total - row.amountPaid), align: "right", render: (row) => (row.status === "Voided" || row.total === row.amountPaid ? <span className="text-slate-500">—</span> : <span className="text-amber-300">{money(row.total - row.amountPaid)}</span>) },
-    { key: "method", header: "Method", value: (row) => row.paymentMethod, render: (row) => row.paymentMethod },
-    { key: "status", header: "Status", value: (row) => row.status, render: (row) => <StatusBadge status={row.status} /> },
+  const columns: Column<HistoryRow>[] = [
+    { key: "number", header: "Reference", value: (row) => row.number, render: (row) => <span className="font-mono text-xs text-white">{row.number}</span> },
+    { key: "date", header: "Date & time", value: (row) => row.date, render: (row) => <span className="whitespace-nowrap text-slate-400">{dateTime(row.date)}</span> },
+    { key: "customer", header: "Customer", value: (row) => row.customer, render: (row) => <div><p className="text-white">{row.customer}</p>{row.prescriptionRef ? <p className="text-[11px] text-sky-300">Rx {row.prescriptionRef}</p> : null}</div> },
+    { key: "cashier", header: "Cashier", value: (row) => row.cashier, render: (row) => row.cashier },
+    ...(outlets.length > 1 ? [{ key: "outlet", header: "Outlet", value: (row: HistoryRow) => row.outlet, render: (row: HistoryRow) => row.outlet.replace(/^Outlet \d - /, "") }] : []),
+    { key: "items", header: "Items", value: (row) => row.items, align: "right", render: (row) => row.items },
+    { key: "gross", header: "Gross", value: (row) => row.gross, align: "right", render: (row) => money(row.gross) },
+    { key: "discount", header: "Discount", value: (row) => row.discount, align: "right", render: (row) => (row.discount ? <span className="text-amber-300">−{money(row.discount)}</span> : <span className="text-slate-500">—</span>) },
+    { key: "returns", header: "Returns", value: (row) => row.returns, align: "right", render: (row) => (row.returns ? <span className="text-rose-300">−{money(row.returns)}</span> : <span className="text-slate-500">—</span>) },
+    { key: "net", header: "Net", value: (row) => row.net, align: "right", render: (row) => <span className="font-semibold text-white">{row.status === "Voided" ? <span className="text-slate-500 line-through">{money(row.gross - row.discount)}</span> : money(row.net)}</span> },
+    { key: "payment", header: "Payment", value: (row) => row.status, render: (row) => <div><StatusBadge status={row.status} /><p className="mt-0.5 text-[11px] text-slate-500">{row.paymentLabel}</p></div> },
     {
       key: "actions",
       header: "",
-      render: (row) => (
-        <div className="flex justify-end gap-1">
-          <button type="button" onClick={() => setViewing(row)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label={`View ${row.number}`}>
-            <Eye className="h-4 w-4" />
-          </button>
-          {canVoid && row.status !== "Voided" ? (
-            <button type="button" onClick={() => setReturning(row)} className="rounded-lg p-1.5 text-slate-400 hover:bg-amber-500/10 hover:text-amber-300" aria-label={`Return items on ${row.number}`} title="Return / refund">
-              <RotateCcw className="h-4 w-4" />
-            </button>
-          ) : null}
-          {canVoid && row.status !== "Voided" ? (
-            <button type="button" onClick={() => setVoiding(row)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300" aria-label={`Void ${row.number}`}>
-              <XCircle className="h-4 w-4" />
-            </button>
-          ) : null}
-        </div>
-      ),
+      render: (row) => {
+        const sale = sales[row.id];
+        return (
+          <div className="flex justify-end gap-1">
+            {sale ? <button type="button" onClick={() => setViewing(sale)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label={`View ${row.number}`} title="View details"><Eye className="h-4 w-4" /></button> : null}
+            <a href={`/api/sales/${row.id}/receipt?format=pdf&print=1`} target="_blank" rel="noreferrer" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label={`Print receipt ${row.number}`} title="Print / reprint receipt"><Printer className="h-4 w-4" /></a>
+            {canVoid && sale && row.status !== "Voided" ? (
+              <button type="button" onClick={() => setReturning(sale)} className="rounded-lg p-1.5 text-slate-400 hover:bg-amber-500/10 hover:text-amber-300" aria-label={`Return items on ${row.number}`} title="Return / refund"><RotateCcw className="h-4 w-4" /></button>
+            ) : null}
+            {canVoid && sale && row.status !== "Voided" ? (
+              <button type="button" onClick={() => setVoiding(sale)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300" aria-label={`Void ${row.number}`} title="Void"><XCircle className="h-4 w-4" /></button>
+            ) : null}
+          </div>
+        );
+      },
     },
   ];
 
+  const select = "h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm text-white";
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Sales & POS"
-        description="Retail, prescription and institutional (HMO / corporate) sales with FEFO batch picking, VAT and credit control."
+        eyebrow="Main"
+        title={ownOnly ? "My sales history" : "Sales history"}
+        description="Completed, held-over and voided transactions with discounts, returns and net amounts. Voided sales never count towards sales totals."
         scope={scope}
         actions={
           canCreate ? (
-            <ActionButton onClick={() => setCreating(true)}>
-              <PlusCircle className="h-4 w-4" /> New sale
-            </ActionButton>
+            <Link href="/pos" className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-medium text-[#fff] hover:bg-blue-700">
+              <ShoppingCart className="h-4 w-4" /> New sale
+            </Link>
           ) : null
         }
       />
 
+      <form method="get" className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+        <label className="grid gap-1 text-xs text-slate-400">From<input type="date" name="from" defaultValue={filters.from} className={select} /></label>
+        <label className="grid gap-1 text-xs text-slate-400">To<input type="date" name="to" defaultValue={filters.to} className={select} /></label>
+        {outlets.length > 1 ? (
+          <label className="grid gap-1 text-xs text-slate-400">Outlet<select name="outletId" defaultValue={filters.outletId} className={select}><option value="">All outlets</option>{outlets.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+        ) : null}
+        {!ownOnly ? (
+          <label className="grid gap-1 text-xs text-slate-400">Cashier<select name="cashierId" defaultValue={filters.cashierId} className={select}><option value="">All cashiers</option>{cashiers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+        ) : null}
+        <label className="grid gap-1 text-xs text-slate-400">Payment method<select name="method" defaultValue={filters.method} className={select}><option value="">Any</option>{METHOD_OPTIONS.map((row) => <option key={row.value} value={row.value}>{row.label}</option>)}</select></label>
+        <label className="grid gap-1 text-xs text-slate-400">Status<select name="status" defaultValue={filters.status} className={select}><option value="">Any</option>{["Paid", "Partially paid", "Unpaid", "Voided"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <button type="submit" className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-medium text-[#fff] hover:bg-blue-700">Apply filters</button>
+        <Link href="/sales" className="h-9 rounded-lg border border-slate-700 px-3 text-sm leading-9 text-slate-300 hover:bg-slate-800">Reset</Link>
+      </form>
+
       <StatGrid
         stats={[
-          { label: "Today's sales", value: money(kpis.todaySales), note: `Incl. ${vatRate}% VAT, excl. voids`, icon: ShoppingCart, tone: "emerald" },
-          { label: "30-day revenue", value: compactMoney(kpis.gross), note: `${kpis.count.toLocaleString()} invoices`, icon: Receipt, tone: "sky" },
-          { label: "Average basket", value: money(kpis.avgBasket), note: "Last 30 days", icon: Banknote, tone: "amber" },
-          { label: "Receivables", value: compactMoney(kpis.receivable), note: `${kpis.voided} voided invoice(s)`, icon: Users, tone: "rose" },
+          { label: "Completed transactions", value: totals.transactions.toLocaleString(), note: `${totals.voided} voided (excluded)`, icon: Receipt, tone: "emerald" },
+          { label: "Gross sales", value: money(totals.gross), note: "Before discounts and returns, excl. VAT", icon: ShoppingCart, tone: "sky" },
+          { label: "Discounts & returns", value: money(totals.discount + totals.returns), note: `Discounts ${money(totals.discount)} · returns ${money(totals.returns)}`, icon: Undo2, tone: "amber" },
+          { label: "Net sales", value: money(totals.net), note: "Gross − discounts − returns", icon: Banknote, tone: "rose" },
         ]}
       />
 
-      <Panel title="Sales register" description={`Every invoice is linked to the batches it was picked from.${totalCount > sales.length ? ` Showing the latest ${sales.length} of ${totalCount.toLocaleString()}; use Reports for full history.` : ""}`}>
+      <Panel title="Transactions" description={rows.length >= 1000 ? "Showing the latest 1,000 transactions for these filters." : `${rows.length.toLocaleString()} transaction(s)`}>
         <DataTable
-          rows={sales}
+          rows={rows}
           columns={columns}
           rowKey={(row) => row.id}
-          search={(row) => `${row.number} ${row.customerName} ${row.cashier} ${row.prescriptionRef ?? ""} ${row.lines.map((line) => line.productName).join(" ")}`}
-          filters={[
-            ...(outlets.length > 1 ? [{ key: "outlet", label: "Outlets", options: outlets.map((outlet) => ({ value: outlet.id, label: outlet.name })), get: (row: SaleInvoice) => row.outletId }] : []),
-            { key: "status", label: "Statuses", options: ["Paid", "Partially paid", "Unpaid", "Voided"].map((value) => ({ value, label: value })), get: (row) => row.status },
-            { key: "method", label: "Methods", options: METHODS.map((value) => ({ value, label: value })), get: (row) => row.paymentMethod },
-          ]}
-          exportName="sales-register"
+          initialQuery={initialQuery}
+          search={(row) => `${row.number} ${row.customer} ${row.cashier} ${row.prescriptionRef}`}
+          exportName="sales-history"
+          pageSize={15}
         />
       </Panel>
 
-      {creating ? <NewSaleModal vatRate={vatRate} outlets={outlets} catalog={catalog} customers={customers} onClose={() => setCreating(false)} /> : null}
       <InvoiceModal sale={viewing} outletLabel={outletLabel} onClose={() => setViewing(null)} />
       {voiding ? <VoidModal sale={voiding} onClose={() => setVoiding(null)} /> : null}
       {returning ? <ReturnModal sale={returning} returned={returned[returning.id] ?? {}} onClose={() => setReturning(null)} /> : null}
     </div>
-  );
-}
-
-function NewSaleModal({
-  vatRate,
-  outlets,
-  catalog,
-  customers,
-  onClose,
-}: {
-  vatRate: number;
-  outlets: { id: string; name: string }[];
-  catalog: Record<string, CatalogItem[]>;
-  customers: CustomerOption[];
-  onClose: () => void;
-}) {
-  const { run, error, setError, busy } = useAction();
-  const [outletId, setOutletId] = useState(outlets[0]?.id ?? "");
-  const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
-  const [method, setMethod] = useState<PaymentMethod>("Cash");
-  const [amountPaid, setAmountPaid] = useState("0");
-  const [prescriptionRef, setPrescriptionRef] = useState("");
-  const [lines, setLines] = useState<{ productId: string; quantity: number }[]>([]);
-  const [picker, setPicker] = useState("");
-
-  const items = catalog[outletId] ?? [];
-  const customer = customers.find((row) => row.id === customerId);
-  const detailed = lines.map((line) => ({ ...line, item: items.find((item) => item.id === line.productId)! })).filter((line) => line.item);
-  const subtotal = detailed.reduce((sum, line) => sum + line.item.sellingPrice * line.quantity, 0);
-  const vat = Math.round(subtotal * (vatRate / 100));
-  const total = subtotal + vat;
-  const needsRx = detailed.some((line) => line.item.rxOnly);
-  const isCredit = method === "Credit" || method === "HMO";
-
-  const outletCustomers = useMemo(() => customers, [customers]);
-
-  function addLine(productId: string) {
-    if (!productId) return;
-    setLines((current) =>
-      current.some((line) => line.productId === productId)
-        ? current.map((line) => (line.productId === productId ? { ...line, quantity: line.quantity + 1 } : line))
-        : [...current, { productId, quantity: 1 }],
-    );
-    setPicker("");
-  }
-
-  async function submit() {
-    const result = await run("/api/sales", "POST", {
-      outletId,
-      customerId,
-      paymentMethod: method,
-      amountPaid: isCredit ? Number(amountPaid) || 0 : undefined,
-      prescriptionRef: prescriptionRef || undefined,
-      lines,
-    });
-    if (result) onClose();
-  }
-
-  return (
-    <Modal open title="New sale" description="Stock is picked first-expiry-first-out; expired batches are blocked automatically." onClose={onClose} wide>
-      <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-3">
-          <Field label="Outlet">
-            <SelectInput
-              value={outletId}
-              disabled={outlets.length < 2}
-              onChange={(event) => {
-                setOutletId(event.target.value);
-                setLines([]);
-              }}
-              options={outlets.map((outlet) => ({ value: outlet.id, label: outlet.name }))}
-            />
-          </Field>
-          <Field label="Customer" hint={customer && customer.type !== "Walk-in" ? `Available credit ${money(customer.available)}` : undefined}>
-            <SelectInput
-              value={customerId}
-              onChange={(event) => {
-                setCustomerId(event.target.value);
-                const next = customers.find((row) => row.id === event.target.value);
-                setMethod(next?.type === "HMO" ? "HMO" : next?.type === "Walk-in" ? "Cash" : method);
-              }}
-              options={outletCustomers.map((row) => ({ value: row.id, label: `${row.name}${row.status === "On hold" ? " (on hold)" : ""}` }))}
-            />
-          </Field>
-          <Field label="Payment method">
-            <SelectInput value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)} options={METHODS.map((value) => ({ value, label: value }))} />
-          </Field>
-        </div>
-
-        <Field label="Add item">
-          <SelectInput
-            value={picker}
-            onChange={(event) => addLine(event.target.value)}
-            options={[
-              { value: "", label: items.length ? "Select an item to add…" : "No items stocked at this outlet" },
-              ...items.map((item) => ({
-                value: item.id,
-                label: `${item.name} · ${money(item.sellingPrice)} · ${item.available} sellable${item.rxOnly ? " · Rx" : ""}${item.controlled ? " · CD" : ""}`,
-              })),
-            ]}
-          />
-        </Field>
-
-        <div className="overflow-x-auto rounded-xl border border-slate-800">
-          <table className="w-full min-w-[520px] text-sm">
-            <thead className="bg-slate-950/80 text-left text-[11px] uppercase tracking-[0.14em] text-slate-400">
-              <tr>
-                <th className="px-3 py-2">Item</th>
-                <th className="px-3 py-2 text-right">Price</th>
-                <th className="px-3 py-2 text-right">Qty</th>
-                <th className="px-3 py-2 text-right">Line total</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {detailed.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                    No items yet.
-                  </td>
-                </tr>
-              ) : (
-                detailed.map((line) => (
-                  <tr key={line.productId}>
-                    <td className="px-3 py-2">
-                      <p className="text-white">{line.item.name}</p>
-                      <p className="text-[11px] text-slate-500">
-                        {line.item.available} sellable
-                        {line.item.rxOnly ? <span className="ml-2 text-sky-300">Prescription only</span> : null}
-                        {line.item.controlled ? <span className="ml-2 text-rose-300">Controlled drug</span> : null}
-                      </p>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{money(line.item.sellingPrice)}</td>
-                    <td className="px-3 py-2 text-right">
-                      <input
-                        type="number"
-                        min={1}
-                        max={line.item.available}
-                        value={line.quantity}
-                        onChange={(event) =>
-                          setLines((current) => current.map((row) => (row.productId === line.productId ? { ...row, quantity: Math.max(1, Math.floor(Number(event.target.value) || 1)) } : row)))
-                        }
-                        className={`h-8 w-20 rounded-lg border bg-slate-950 px-2 text-right text-white ${line.quantity > line.item.available ? "border-rose-500" : "border-slate-700"}`}
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-white">{money(line.item.sellingPrice * line.quantity)}</td>
-                    <td className="px-3 py-2 text-right">
-                      <button type="button" onClick={() => setLines((current) => current.filter((row) => row.productId !== line.productId))} className="rounded p-1 text-slate-500 hover:text-rose-300" aria-label="Remove line">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-3">
-            {needsRx ? (
-              <Field label="Prescription reference" hint="Required: basket contains prescription-only medicines.">
-                <TextInput value={prescriptionRef} onChange={(event) => setPrescriptionRef(event.target.value)} placeholder="e.g. RX-448120 / prescriber name" />
-              </Field>
-            ) : null}
-            {isCredit ? (
-              <Field label="Amount paid now" hint="The balance is posted to the customer's account.">
-                <TextInput type="number" min={0} value={amountPaid} onChange={(event) => setAmountPaid(event.target.value)} />
-              </Field>
-            ) : null}
-          </div>
-          <div className="space-y-1 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm">
-            <div className="flex justify-between text-slate-400"><span>Subtotal</span><span className="tabular-nums">{money(subtotal)}</span></div>
-            <div className="flex justify-between text-slate-400"><span>VAT {vatRate}%</span><span className="tabular-nums">{money(vat)}</span></div>
-            <div className="flex justify-between border-t border-slate-800 pt-2 text-base font-semibold text-white"><span>Total</span><span className="tabular-nums">{money(total)}</span></div>
-          </div>
-        </div>
-
-        <FormError message={error} />
-        <div className="flex justify-end gap-2">
-          <ActionButton tone="secondary" onClick={onClose}>Cancel</ActionButton>
-          <ActionButton
-            disabled={busy || detailed.length === 0}
-            onClick={() => {
-              setError(null);
-              void submit();
-            }}
-          >
-            {busy ? "Posting…" : `Complete sale · ${money(total)}`}
-          </ActionButton>
-        </div>
-      </div>
-    </Modal>
   );
 }
 
@@ -349,12 +169,21 @@ function InvoiceModal({ sale, outletLabel, onClose }: { sale: SaleInvoice | null
             <tr><th className="py-2">Item</th><th className="py-2">Batch</th><th className="py-2 text-right">Qty</th><th className="py-2 text-right">Price</th><th className="py-2 text-right">Total</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
-            {sale.lines.map((line) => (
-              <tr key={line.productId}>
+            {sale.lines.map((line, index) => (
+              <tr key={`${line.productId}-${index}`}>
                 <td className="py-2 text-white">{line.productName}</td>
                 <td className="py-2 font-mono text-xs text-slate-400">{line.batchNumbers.join(", ") || "historic"}</td>
-                <td className="py-2 text-right tabular-nums">{line.quantity}</td>
-                <td className="py-2 text-right tabular-nums">{money(line.unitPrice)}</td>
+                <td className="py-2 text-right tabular-nums">
+                  {line.packQuantity && line.unitsPerPackage && line.unitsPerPackage > 1 ? (
+                    <>
+                      {line.packQuantity} {line.packagingName}
+                      <span className="block text-[11px] text-slate-500">{line.quantity} units</span>
+                    </>
+                  ) : (
+                    line.quantity
+                  )}
+                </td>
+                <td className="py-2 text-right tabular-nums">{money(line.packPrice ?? line.unitPrice)}</td>
                 <td className="py-2 text-right tabular-nums text-white">{money(line.total)}</td>
               </tr>
             ))}
@@ -407,7 +236,16 @@ function ReturnModal({ sale, returned, onClose }: { sale: SaleInvoice; returned:
   const [restock, setRestock] = useState(false);
   const net = sale.subtotal - sale.discount;
   const vatRatio = net > 0 ? sale.vat / net : 0;
-  const total = sale.lines.reduce((sum, line) => sum + ((quantities[line.productId] ?? 0) * line.total) / line.quantity, 0) * (1 + vatRatio);
+  // Returns are per item in base units, even when it was sold in several package sizes.
+  const grouped = Object.values(
+    sale.lines.reduce<Record<string, { productId: string; productName: string; quantity: number; total: number }>>((acc, line) => {
+      const row = (acc[line.productId] ??= { productId: line.productId, productName: line.productName, quantity: 0, total: 0 });
+      row.quantity += line.quantity;
+      row.total += line.total;
+      return acc;
+    }, {}),
+  );
+  const total = grouped.reduce((sum, line) => sum + ((quantities[line.productId] ?? 0) * line.total) / line.quantity, 0) * (1 + vatRatio);
   const outstanding = Math.max(0, sale.total - sale.amountPaid);
 
   return (
@@ -418,7 +256,7 @@ function ReturnModal({ sale, returned, onClose }: { sale: SaleInvoice; returned:
             <tr><th className="py-2">Item</th><th className="py-2 text-right">Sold</th><th className="py-2 text-right">Already returned</th><th className="py-2 text-right">Return now</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
-            {sale.lines.map((line) => {
+            {grouped.map((line) => {
               const available = line.quantity - (returned[line.productId] ?? 0);
               return (
                 <tr key={line.productId}>

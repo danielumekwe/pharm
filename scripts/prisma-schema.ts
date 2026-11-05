@@ -4,14 +4,14 @@ import { writeFileSync } from "node:fs";
 
 import { columnName, KV_TABLE, TABLES, type FieldSpec } from "../lib/db/schema.ts";
 
-const PRISMA_TYPES = { text: "String", int: "Int", real: "Float", bool: "Boolean", json: "String" } as const;
+const PRISMA_TYPES = { text: "String", int: "Int", real: "Float", money: "Decimal", bool: "Boolean", json: "String" } as const;
 const pascal = (table: string) => table.replace(/(^|_)([a-z])/g, (_, __, letter: string) => letter.toUpperCase()).replace(/s$/, "");
 const camel = (column: string) => column.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
 
-function field([name, kind, options]: FieldSpec) {
+function field([name, kind, options]: FieldSpec, child = false) {
   const column = columnName(name);
-  const attributes = [name === "id" ? "@id" : "", options?.unique ? "@unique" : "", column !== name ? `@map("${column}")` : ""].filter(Boolean).join(" ");
-  const optional = name === "id" || options?.required ? "" : "?";
+  const attributes = [name === "id" && !child ? "@id" : "", options?.unique ? "@unique" : "", column !== name ? `@map("${column}")` : "", kind === "money" ? "@db.Decimal(18, 4)" : ""].filter(Boolean).join(" ");
+  const optional = (name === "id" && !child) || options?.required ? "" : "?";
   const comment = kind === "json" ? " // JSON" : "";
   return `  ${name.padEnd(20)} ${(PRISMA_TYPES[kind] + optional).padEnd(9)} ${attributes}${comment}`.trimEnd();
 }
@@ -29,7 +29,7 @@ for (const spec of TABLES) {
     const parentField = camel(child.parentColumn);
     const childLines = [`  ${parentField.padEnd(20)} String    @map("${child.parentColumn}")`, `  ${"position".padEnd(20)} Int`];
     if (child.scalarColumn) childLines.push(`  ${camel(child.scalarColumn).padEnd(20)} String    @map("${child.scalarColumn}")`);
-    for (const childField of child.fields ?? []) childLines.push(field(childField));
+    for (const childField of child.fields ?? []) childLines.push(field(childField, true));
     childLines.push(`  ${"parent".padEnd(20)} ${name.padEnd(9)} @relation(fields: [${parentField}], references: [id], onDelete: Cascade)`);
     models.push(`model ${pascal(child.table)} {\n${childLines.join("\n")}\n\n  @@id([${parentField}, position])\n  @@map("${child.table}")\n}`);
   }

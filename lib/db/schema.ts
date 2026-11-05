@@ -1,7 +1,8 @@
 // Database schema: single source of truth for the PostgreSQL tables and generated Prisma schema.
 // Pure data (no imports) so scripts can load it directly with Node.
 
-export type FieldKind = "text" | "int" | "real" | "bool" | "json";
+/** "money" is stored as NUMERIC(18,4) so amounts are exact; "real" is for non-monetary measurements. */
+export type FieldKind = "text" | "int" | "real" | "money" | "bool" | "json";
 export type FieldSpec = readonly [field: string, kind: FieldKind, options?: { required?: boolean; unique?: boolean; index?: boolean }];
 
 export type ChildSpec = {
@@ -31,7 +32,7 @@ export const TABLES: readonly TableSpec[] = [
     table: "outlets",
     source: { kind: "data", key: "outlets" },
     order: "asc",
-    fields: [id, ["name", "text", { required: true }], ["code", "text", { required: true, unique: true }], ["type", "text"], ["address", "text"], ["manager", "text"], ["phone", "text"], ["pcnLicense", "text"], ["licenceExpiry", "text"], ["status", "text"], ["stockValue", "real"], ["sales", "real"]],
+    fields: [id, ["name", "text", { required: true }], ["code", "text", { required: true, unique: true }], ["type", "text"], ["address", "text"], ["manager", "text"], ["phone", "text"], ["pcnLicense", "text"], ["licenceExpiry", "text"], ["status", "text"], ["stockValue", "money"], ["sales", "money"]],
   },
   {
     table: "users",
@@ -44,43 +45,81 @@ export const TABLES: readonly TableSpec[] = [
     table: "products",
     source: { kind: "data", key: "products" },
     order: "asc",
-    fields: [id, ["name", "text", { required: true, index: true }], ["genericName", "text"], ["category", "text"], ["manufacturer", "text"], ["strength", "text"], ["uom", "text"], ["purchasePrice", "real"], ["sellingPrice", "real"], ["minStock", "int"], ["maxStock", "int"], ["stock", "int"], ["status", "text"], ["barcode", "text"], ["nafdacNumber", "text"], ["outletId", "text", { required: true, index: true }], ["expiryWindow", "text"], ["rxOnly", "bool"], ["controlled", "bool"], ["thresholdSource", "text"]],
+    fields: [id, ["name", "text", { required: true, index: true }], ["genericName", "text"], ["category", "text"], ["manufacturer", "text"], ["strength", "text"], ["size", "text"], ["uom", "text"], ["purchasePrice", "money"], ["sellingPrice", "money"], ["minStock", "int"], ["maxStock", "int"], ["stock", "int"], ["status", "text"], ["barcode", "text"], ["nafdacNumber", "text"], ["outletId", "text", { required: true, index: true }], ["expiryWindow", "text"], ["rxOnly", "bool"], ["controlled", "bool"], ["thresholdSource", "text"], ["sku", "text", { index: true }], ["productType", "text"], ["dosageForm", "text"], ["description", "text"], ["supplierId", "text"], ["lifecycle", "text"], ["baseUnit", "text"], ["wholesalePrice", "money"], ["minSellingPrice", "money"]],
+    children: [
+      {
+        table: "product_packaging",
+        property: "packaging",
+        parentColumn: "product_id",
+        fields: [["id", "text"], ["name", "text"], ["contains", "int"], ["unitsPerPackage", "int"], ["isBase", "bool"], ["purchasePrice", "money"], ["sellingPrice", "money"], ["wholesalePrice", "money"], ["minSellingPrice", "money"], ["sellable", "bool"]],
+      },
+      {
+        table: "product_barcodes",
+        property: "barcodes",
+        parentColumn: "product_id",
+        fields: [["code", "text", { index: true }], ["format", "text"], ["source", "text"], ["packagingId", "text"]],
+      },
+    ],
   },
   {
     table: "batches",
     source: { kind: "data", key: "batches" },
     order: "desc",
-    fields: [id, ["batchNumber", "text", { required: true, index: true }], ["productId", "text", { required: true, index: true }], ["productName", "text"], ["supplier", "text"], ["assignedOutletId", "text", { required: true, index: true }], ["receivingDate", "text"], ["manufacturingDate", "text"], ["expiryDate", "text", { required: true, index: true }], ["quantityReceived", "int"], ["availableQuantity", "int"], ["purchasePrice", "real"], ["disposition", "json"]],
+    fields: [id, ["batchNumber", "text", { required: true, index: true }], ["productId", "text", { required: true, index: true }], ["productName", "text"], ["supplier", "text"], ["assignedOutletId", "text", { required: true, index: true }], ["receivingDate", "text"], ["manufacturingDate", "text"], ["expiryDate", "text", { required: true, index: true }], ["quantityReceived", "int"], ["availableQuantity", "int"], ["purchasePrice", "money"], ["disposition", "json"], ["supplierId", "text"], ["supplierBatchRef", "text"], ["regulatoryNumber", "text"]],
   },
   {
     table: "stock_movements",
     source: { kind: "data", key: "stockMovements" },
     order: "desc",
-    fields: [id, ["reference", "text"], ["date", "text", { index: true }], ["type", "text"], ["outletId", "text", { index: true }], ["toOutletId", "text"], ["productName", "text"], ["quantity", "int"], ["status", "text", { index: true }], ["batchId", "text"], ["disposition", "text"], ["reason", "text"], ["requestedBy", "text"], ["approvedBy", "text"]],
+    fields: [id, ["reference", "text"], ["date", "text", { index: true }], ["type", "text"], ["outletId", "text", { index: true }], ["toOutletId", "text"], ["productId", "text", { index: true }], ["productName", "text"], ["quantity", "int"], ["status", "text", { index: true }], ["batchId", "text"], ["disposition", "text"], ["reason", "text"], ["requestedBy", "text"], ["approvedBy", "text"], ["direction", "text"], ["invoiceNumber", "text"], ["purchaseReference", "text"]],
+  },
+  {
+    table: "stock_ledger",
+    source: { kind: "store", key: "stockLedger" },
+    order: "desc",
+    fields: [id, ["reference", "text", { required: true, index: true }], ["at", "text", { required: true, index: true }], ["type", "text", { required: true, index: true }], ["productId", "text", { required: true, index: true }], ["productName", "text"], ["outletId", "text", { required: true, index: true }], ["batchId", "text", { required: true, index: true }], ["batchNumber", "text"], ["quantity", "real"], ["unit", "text"], ["unitsPerUnit", "int"], ["baseQuantity", "int", { required: true }], ["previousBalance", "int"], ["newBalance", "int"], ["batchBalance", "int"], ["unitCost", "money"], ["userId", "text"], ["userName", "text"], ["remarks", "text"], ["movementId", "text"]],
+  },
+  {
+    table: "price_history",
+    source: { kind: "store", key: "priceHistory" },
+    order: "desc",
+    fields: [id, ["at", "text", { required: true }], ["productId", "text", { required: true, index: true }], ["productName", "text"], ["outletId", "text"], ["level", "text"], ["kind", "text"], ["oldValue", "money"], ["newValue", "money"], ["userId", "text"], ["userName", "text"]],
+  },
+  {
+    table: "held_sales",
+    source: { kind: "store", key: "heldSales" },
+    order: "desc",
+    fields: [id, ["reference", "text", { required: true }], ["kind", "text", { required: true }], ["outletId", "text", { required: true, index: true }], ["cashierId", "text", { index: true }], ["cashierName", "text"], ["createdAt", "text"], ["updatedAt", "text"], ["label", "text"], ["cart", "json"]],
+  },
+  {
+    table: "stock_transfers",
+    source: { kind: "store", key: "transfers" },
+    order: "desc",
+    fields: [id, ["reference", "text", { required: true, unique: true }], ["fromOutletId", "text", { required: true, index: true }], ["toOutletId", "text", { required: true, index: true }], ["status", "text", { required: true, index: true }], ["lines", "json"], ["notes", "text"], ["createdAt", "text"], ["createdBy", "text"], ["createdById", "text"], ["approvedBy", "text"], ["dispatchedAt", "text"], ["dispatchedBy", "text"], ["receivedAt", "text"], ["receivedBy", "text"], ["discrepancies", "json"], ["history", "json"]],
   },
   {
     table: "customers",
     source: { kind: "store", key: "customers" },
     order: "asc",
-    fields: [id, ["code", "text", { unique: true }], ["name", "text", { required: true }], ["type", "text"], ["phone", "text"], ["email", "text"], ["outletId", "text"], ["creditLimit", "real"], ["balance", "real"], ["status", "text"], ["createdAt", "text"]],
+    fields: [id, ["code", "text", { unique: true }], ["name", "text", { required: true }], ["type", "text"], ["phone", "text"], ["email", "text"], ["outletId", "text"], ["creditLimit", "money"], ["balance", "money"], ["status", "text"], ["createdAt", "text"]],
   },
   {
     table: "suppliers",
     source: { kind: "store", key: "suppliers" },
     order: "asc",
-    fields: [id, ["code", "text", { unique: true }], ["name", "text", { required: true }], ["contactPerson", "text"], ["phone", "text"], ["email", "text"], ["pcnLicense", "text"], ["paymentTermsDays", "int"], ["balance", "real"], ["status", "text"], ["categories", "text"]],
+    fields: [id, ["code", "text", { unique: true }], ["name", "text", { required: true }], ["contactPerson", "text"], ["phone", "text"], ["email", "text"], ["pcnLicense", "text"], ["paymentTermsDays", "int"], ["balance", "money"], ["status", "text"], ["categories", "text"]],
   },
   {
     table: "sales",
     source: { kind: "store", key: "sales" },
     order: "desc",
-    fields: [id, ["number", "text", { unique: true }], ["date", "text", { required: true, index: true }], ["outletId", "text", { required: true, index: true }], ["customerId", "text", { index: true }], ["customerName", "text"], ["cashier", "text"], ["cashierId", "text", { index: true }], ["subtotal", "real"], ["discount", "real"], ["vat", "real"], ["total", "real"], ["amountPaid", "real"], ["paymentMethod", "text"], ["status", "text", { index: true }], ["prescriptionRef", "text"], ["voidReason", "text"]],
+    fields: [id, ["number", "text", { unique: true }], ["date", "text", { required: true, index: true }], ["outletId", "text", { required: true, index: true }], ["customerId", "text", { index: true }], ["customerName", "text"], ["cashier", "text"], ["cashierId", "text", { index: true }], ["subtotal", "money"], ["discount", "money"], ["vat", "money"], ["total", "money"], ["amountPaid", "money"], ["paymentMethod", "text"], ["status", "text", { index: true }], ["prescriptionRef", "text"], ["voidReason", "text"], ["payments", "json"], ["tendered", "money"], ["change", "money"], ["globalDiscount", "json"], ["discountAuthorisedBy", "text"], ["walkIn", "json"], ["customerKind", "text"], ["heldId", "text"], ["receiptPrints", "int"]],
     children: [
       {
         table: "sale_lines",
         property: "lines",
         parentColumn: "sale_id",
-        fields: [["productId", "text", { index: true }], ["productName", "text"], ["batchNumbers", "json"], ["quantity", "int"], ["unitPrice", "real"], ["discount", "real"], ["total", "real"]],
+        fields: [["productId", "text", { index: true }], ["productName", "text"], ["batchNumbers", "json"], ["quantity", "int"], ["unitPrice", "money"], ["discount", "money"], ["total", "money"], ["packagingName", "text"], ["unitsPerPackage", "int"], ["packQuantity", "real"], ["packPrice", "money"], ["allocations", "json"]],
       },
     ],
   },
@@ -88,13 +127,13 @@ export const TABLES: readonly TableSpec[] = [
     table: "purchase_orders",
     source: { kind: "store", key: "purchaseOrders" },
     order: "desc",
-    fields: [id, ["number", "text", { unique: true }], ["supplierId", "text", { index: true }], ["supplierName", "text"], ["outletId", "text", { index: true }], ["createdAt", "text"], ["expectedDate", "text"], ["createdBy", "text"], ["createdById", "text"], ["approvedBy", "text"], ["status", "text", { index: true }], ["total", "real"], ["amountPaid", "real"], ["notes", "text"]],
+    fields: [id, ["number", "text", { unique: true }], ["supplierId", "text", { index: true }], ["supplierName", "text"], ["outletId", "text", { index: true }], ["createdAt", "text"], ["expectedDate", "text"], ["createdBy", "text"], ["createdById", "text"], ["approvedBy", "text"], ["status", "text", { index: true }], ["total", "money"], ["amountPaid", "money"], ["notes", "text"]],
     children: [
       {
         table: "purchase_order_lines",
         property: "lines",
         parentColumn: "purchase_order_id",
-        fields: [["productId", "text"], ["productName", "text"], ["quantity", "int"], ["unitCost", "real"], ["receivedQuantity", "int"]],
+        fields: [["productId", "text"], ["productName", "text"], ["quantity", "int"], ["unitCost", "money"], ["receivedQuantity", "int"]],
       },
     ],
   },
@@ -102,13 +141,13 @@ export const TABLES: readonly TableSpec[] = [
     table: "payments",
     source: { kind: "store", key: "payments" },
     order: "desc",
-    fields: [id, ["reference", "text"], ["date", "text", { index: true }], ["direction", "text"], ["partyType", "text"], ["partyId", "text", { index: true }], ["partyName", "text"], ["documentRef", "text"], ["method", "text"], ["account", "text"], ["amount", "real"], ["recordedBy", "text"]],
+    fields: [id, ["reference", "text"], ["date", "text", { index: true }], ["direction", "text"], ["partyType", "text"], ["partyId", "text", { index: true }], ["partyName", "text"], ["documentRef", "text"], ["method", "text"], ["account", "text"], ["amount", "money"], ["recordedBy", "text"]],
   },
   {
     table: "expenses",
     source: { kind: "store", key: "expenses" },
     order: "desc",
-    fields: [id, ["reference", "text", { unique: true }], ["date", "text"], ["category", "text"], ["description", "text"], ["vendor", "text"], ["outletId", "text", { index: true }], ["amount", "real"], ["status", "text"], ["requestedBy", "text"], ["requestedById", "text"], ["approvedBy", "text"]],
+    fields: [id, ["reference", "text", { unique: true }], ["date", "text"], ["category", "text"], ["description", "text"], ["vendor", "text"], ["outletId", "text", { index: true }], ["amount", "money"], ["status", "text"], ["requestedBy", "text"], ["requestedById", "text"], ["approvedBy", "text"]],
   },
   {
     table: "audit_events",
@@ -120,7 +159,7 @@ export const TABLES: readonly TableSpec[] = [
     table: "product_registrations",
     source: { kind: "store", key: "registrations" },
     order: "asc",
-    fields: [id, ["productName", "text", { required: true, unique: true }], ["genericName", "text"], ["manufacturer", "text"], ["category", "text"], ["nafdacNumber", "text"], ["issuedDate", "text"], ["expiryDate", "text"], ["notes", "text"], ["updatedBy", "text"], ["updatedAt", "text"]],
+    fields: [id, ["productName", "text", { required: true, unique: true }], ["genericName", "text"], ["manufacturer", "text"], ["category", "text"], ["nafdacNumber", "text"], ["issuedDate", "text"], ["expiryDate", "text"], ["notes", "text"], ["updatedBy", "text"], ["updatedAt", "text"], ["status", "text"], ["renewalDate", "text"], ["localRepresentative", "text"]],
   },
   {
     table: "regulatory_documents",
@@ -150,13 +189,13 @@ export const TABLES: readonly TableSpec[] = [
     table: "sale_returns",
     source: { kind: "store", key: "saleReturns" },
     order: "desc",
-    fields: [id, ["number", "text", { unique: true }], ["saleId", "text", { required: true, index: true }], ["saleNumber", "text"], ["outletId", "text", { required: true, index: true }], ["date", "text", { required: true, index: true }], ["processedBy", "text"], ["processedById", "text"], ["cashier", "text"], ["cashierId", "text"], ["net", "real"], ["vat", "real"], ["total", "real"], ["refundMethod", "text"], ["refundedAmount", "real"], ["creditedAmount", "real"], ["reason", "text"], ["restocked", "bool"]],
+    fields: [id, ["number", "text", { unique: true }], ["saleId", "text", { required: true, index: true }], ["saleNumber", "text"], ["outletId", "text", { required: true, index: true }], ["date", "text", { required: true, index: true }], ["processedBy", "text"], ["processedById", "text"], ["cashier", "text"], ["cashierId", "text"], ["net", "money"], ["vat", "money"], ["total", "money"], ["refundMethod", "text"], ["refundedAmount", "money"], ["creditedAmount", "money"], ["reason", "text"], ["restocked", "bool"]],
     children: [
       {
         table: "sale_return_lines",
         property: "lines",
         parentColumn: "sale_return_id",
-        fields: [["productId", "text"], ["productName", "text"], ["quantity", "int"], ["unitNet", "real"], ["net", "real"], ["vat", "real"], ["total", "real"]],
+        fields: [["productId", "text"], ["productName", "text"], ["quantity", "int"], ["unitNet", "money"], ["net", "money"], ["vat", "money"], ["total", "money"]],
       },
     ],
   },

@@ -13,9 +13,12 @@ const schema = z.object({
         batchNumber: z.string().max(40),
         expiryDate: z.string(),
         manufacturingDate: z.string().optional(),
+        supplierBatchRef: z.string().max(60).optional(),
+        regulatoryNumber: z.string().max(20).optional(),
       }),
     )
     .optional(),
+  invoiceNumber: z.string().max(60).optional(),
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -23,6 +26,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // Fine-grained checks (approve / receive) happen inside the service.
   return guarded("purchase.view", async (actor) => {
     const body = schema.parse(await request.json());
-    return transitionPurchaseOrder(actor, id, body.action, body.lines ?? []);
+    return transitionPurchaseOrder(actor, id, body.action, body.lines ?? [], body.invoiceNumber);
   });
 }

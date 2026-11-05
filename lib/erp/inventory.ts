@@ -1,115 +1,27 @@
 // Item master and goods-receipt operations.
 
-import { addStockMovement, batches, outlets, products, stockMovements, type Product } from "@/lib/data";
+import { addStockMovement, batches, products, stockMovements } from "@/lib/data";
+import { receiveIntoNewBatch } from "@/lib/erp/ledger";
+import { normaliseNafdac, recordPriceChanges } from "@/lib/erp/products";
 import {
   assertCan,
   assertOutletAccess,
   DomainError,
   isExpired,
   outletName,
+  productPackaging,
   recordAudit,
   refreshProductStatus,
 } from "@/lib/erp/services";
-import { getStore } from "@/lib/erp/store";
+import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor } from "@/lib/erp/types";
 import { isOutletScoped } from "@/lib/rbac";
 
 const DAY = 1000 * 60 * 60 * 24;
-const NAFDAC_PATTERN = /^[A-Z0-9]{2}-\d{4,6}$/;
-
-export const ITEM_CATEGORIES = [
-  "Tablets",
-  "Capsules",
-  "Syrups",
-  "Injections",
-  "Creams",
-  "Supplements",
-  "Medical supplies",
-  "Devices",
-  "Others",
-] as const;
-
-export type ItemInput = {
-  name: string;
-  genericName: string;
-  category: string;
-  manufacturer: string;
-  strength: string;
-  uom: string;
-  purchasePrice: number;
-  sellingPrice: number;
-  minStock: number;
-  barcode: string;
-  nafdacNumber: string;
-  rxOnly: boolean;
-  controlled: boolean;
-  outletId: string;
-};
 
 function validatePricing(purchasePrice: number, sellingPrice: number) {
   if (!(purchasePrice > 0)) throw new DomainError("Cost price must be greater than zero.");
   if (sellingPrice < purchasePrice) throw new DomainError("Selling price cannot be below cost price.");
-}
-
-function normaliseNafdac(value: string) {
-  const trimmed = value.trim().toUpperCase();
-  if (!trimmed || trimmed === "PENDING") return "Pending";
-  if (!NAFDAC_PATTERN.test(trimmed)) throw new DomainError("NAFDAC number must look like A4-12345, or be left as Pending.");
-  return trimmed;
-}
-
-/** New item at a location. Stock always starts at zero and only enters through a goods receipt. */
-export function createItem(actor: Actor, input: ItemInput) {
-  assertCan(actor, "products.manage");
-  assertOutletAccess(actor, input.outletId);
-  if (!outlets.some((outlet) => outlet.id === input.outletId)) throw new DomainError("Unknown location.");
-  if (input.name.trim().length < 2) throw new DomainError("Item name is required.");
-  validatePricing(input.purchasePrice, input.sellingPrice);
-  if (input.controlled && !input.rxOnly) throw new DomainError("Controlled drugs must also be prescription-only.");
-
-  const name = input.name.trim();
-  if (products.some((product) => product.outletId === input.outletId && product.name.toLowerCase() === name.toLowerCase())) {
-    throw new DomainError(`${name} already exists at ${outletName(input.outletId)}.`);
-  }
-  const barcode = input.barcode.trim();
-  const sibling = products.find((product) => product.barcode === barcode);
-  if (barcode && sibling && sibling.name.toLowerCase() !== name.toLowerCase()) {
-    throw new DomainError(`Barcode ${barcode} is already used by ${sibling.name}.`);
-  }
-
-  const nafdacNumber = normaliseNafdac(input.nafdacNumber);
-  const item: Product = {
-    id: `prod-${Date.now()}`,
-    name,
-    genericName: input.genericName.trim() || name,
-    category: input.category,
-    manufacturer: input.manufacturer.trim() || "-",
-    strength: input.strength.trim() || "-",
-    uom: input.uom.trim() || "Pack",
-    purchasePrice: input.purchasePrice,
-    sellingPrice: input.sellingPrice,
-    minStock: Math.max(0, Math.floor(input.minStock)),
-    stock: 0,
-    status: "LOW_STOCK",
-    barcode: barcode || `890${Date.now().toString().slice(-10)}`,
-    nafdacNumber,
-    outletId: input.outletId,
-    expiryWindow: "-",
-    rxOnly: input.rxOnly,
-    controlled: input.controlled,
-  };
-  refreshProductStatus(item);
-  products.unshift(item);
-
-  recordAudit(actor, {
-    action: "products.create",
-    entity: "Product",
-    entityId: item.id,
-    summary: `Added ${item.name} at ${outletName(item.outletId)} · cost ₦${item.purchasePrice.toLocaleString()} / price ₦${item.sellingPrice.toLocaleString()}${nafdacNumber === "Pending" ? " · NAFDAC no. pending" : ""}`,
-    outletId: item.outletId,
-    severity: nafdacNumber === "Pending" ? "warning" : "info",
-  });
-  return item;
 }
 
 export type ItemUpdate = {
@@ -132,6 +44,7 @@ export function updateItem(actor: Actor, itemId: string, input: ItemUpdate) {
 
   const purchasePrice = input.purchasePrice ?? item.purchasePrice;
   const sellingPrice = input.sellingPrice ?? item.sellingPrice;
+  if (purchasePrice !== item.purchasePrice || sellingPrice !== item.sellingPrice) assertCan(actor, "products.price");
   validatePricing(purchasePrice, sellingPrice);
   const rxOnly = input.rxOnly ?? Boolean(item.rxOnly);
   const controlled = input.controlled ?? Boolean(item.controlled);
@@ -159,6 +72,7 @@ export function updateItem(actor: Actor, itemId: string, input: ItemUpdate) {
   if (input.restricted !== undefined && input.restricted !== (item.status === "RESTRICTED")) changes.push(input.restricted ? "RESTRICTED" : "released");
 
   for (const target of targets) {
+    const before = { prices: { purchasePrice: target.purchasePrice, sellingPrice: target.sellingPrice, wholesalePrice: target.wholesalePrice, minSellingPrice: target.minSellingPrice }, packaging: structuredClone(target.packaging ?? []) };
     target.purchasePrice = purchasePrice;
     target.sellingPrice = sellingPrice;
     target.nafdacNumber = nafdacNumber;
@@ -166,6 +80,7 @@ export function updateItem(actor: Actor, itemId: string, input: ItemUpdate) {
     target.controlled = controlled;
     if (input.restricted !== undefined) target.status = input.restricted ? "RESTRICTED" : "ACTIVE";
     refreshProductStatus(target);
+    recordPriceChanges(actor, target, before);
   }
   // Reorder levels are location-specific.
   if (input.minStock !== undefined) {
@@ -187,11 +102,19 @@ export function updateItem(actor: Actor, itemId: string, input: ItemUpdate) {
 export type DirectReceiptInput = {
   productId: string;
   supplierId: string;
+  /** Quantity in the chosen packaging level (base units when none is given). */
   quantity: number;
+  packagingId?: string;
+  /** Cost per package of that level. */
   unitCost: number;
   batchNumber: string;
   manufacturingDate: string;
   expiryDate: string;
+  supplierBatchRef?: string;
+  regulatoryNumber?: string;
+  /** Supplier invoice / delivery note number and the buyer's purchase reference. */
+  invoiceNumber?: string;
+  purchaseReference?: string;
   reason: string;
 };
 
@@ -202,12 +125,16 @@ export function receiveDirect(actor: Actor, input: DirectReceiptInput) {
   if (!item) throw new DomainError("Select an item from the item master.");
   assertOutletAccess(actor, item.outletId);
   if (item.status === "RESTRICTED") throw new DomainError(`${item.name} is restricted; it cannot be received.`);
+  if (item.lifecycle === "DISCONTINUED") throw new DomainError(`${item.name} is discontinued; it cannot be received.`);
 
   const supplier = getStore().suppliers.find((row) => row.id === input.supplierId);
   if (!supplier) throw new DomainError("Select a supplier.");
   if (supplier.status !== "Approved") throw new DomainError(`${supplier.name} is not a verified supplier.`);
   if (!Number.isInteger(input.quantity) || input.quantity <= 0) throw new DomainError("Quantity must be a positive whole number.");
   if (!(input.unitCost > 0)) throw new DomainError("Unit cost is required.");
+  const levels = productPackaging(item);
+  const level = input.packagingId ? levels.find((row) => row.id === input.packagingId) : levels.find((row) => row.isBase);
+  if (!level) throw new DomainError("Choose the packaging the quantity is counted in.");
   const batchNumber = input.batchNumber.trim().toUpperCase();
   if (!batchNumber) throw new DomainError("Batch number is required.");
   if (batches.some((batch) => batch.productId === item.id && batch.batchNumber === batchNumber)) {
@@ -221,35 +148,39 @@ export function receiveDirect(actor: Actor, input: DirectReceiptInput) {
   const { minShelfLifeDays } = getStore().settings;
   if (expiry < Date.now() + minShelfLifeDays * DAY) throw new DomainError(`Short-dated stock (under ${minShelfLifeDays} days to expiry) must be rejected at receipt.`);
   if (input.reason.trim().length < 3) throw new DomainError("State why this delivery has no purchase order.");
+  const regulatoryNumber = input.regulatoryNumber?.trim() ? normaliseNafdac(input.regulatoryNumber) : undefined;
 
-  const today = new Date().toISOString().slice(0, 10);
-  const batch = {
-    id: `batch-${Date.now()}`,
-    batchNumber,
-    productId: item.id,
-    productName: item.name,
-    supplier: supplier.name,
-    assignedOutletId: item.outletId,
-    receivingDate: today,
-    manufacturingDate: input.manufacturingDate,
-    expiryDate: input.expiryDate,
-    quantityReceived: input.quantity,
-    availableQuantity: input.quantity,
-    purchasePrice: input.unitCost,
-  };
-  batches.unshift(batch);
-  item.stock += input.quantity;
-  refreshProductStatus(item);
-  supplier.balance += input.quantity * input.unitCost;
+  const baseQuantity = input.quantity * level.unitsPerPackage;
+  const value = input.quantity * input.unitCost;
+  const reference = `GRN-D${String(nextNumber("movement")).padStart(5, "0")}`;
+  const { batch } = receiveIntoNewBatch(
+    actor,
+    item,
+    {
+      batchNumber,
+      manufacturingDate: input.manufacturingDate,
+      expiryDate: input.expiryDate,
+      supplier: supplier.name,
+      supplierId: supplier.id,
+      supplierBatchRef: input.supplierBatchRef?.trim(),
+      regulatoryNumber: regulatoryNumber === "Pending" ? undefined : regulatoryNumber,
+      unitCost: Math.round((input.unitCost / level.unitsPerPackage) * 10000) / 10000,
+    },
+    { type: "RECEIVE", baseQuantity, reference, remarks: `Direct receipt (no PO): ${input.reason.trim()}`, unit: { name: level.name, unitsPerPackage: level.unitsPerPackage } },
+  );
+  supplier.balance += value;
 
   const movement = addStockMovement({
-    reference: `GRN-D${Date.now().toString().slice(-5)}`,
+    reference,
     type: "Receive",
     outletId: item.outletId,
+    productId: item.id,
     productName: item.name,
-    quantity: input.quantity,
+    quantity: baseQuantity,
     status: "Approved",
     batchId: batch.id,
+    invoiceNumber: input.invoiceNumber?.trim() || undefined,
+    purchaseReference: input.purchaseReference?.trim() || undefined,
     reason: `Direct receipt (no PO): ${input.reason.trim()}`,
     requestedBy: actor.name,
     approvedBy: actor.name,
@@ -259,11 +190,38 @@ export function receiveDirect(actor: Actor, input: DirectReceiptInput) {
     action: "purchase.receive",
     entity: "Batch",
     entityId: batch.id,
-    summary: `${movement.reference}: ${input.quantity} × ${item.name} batch ${batchNumber} (exp ${input.expiryDate}) from ${supplier.name} WITHOUT PO — ${input.reason.trim()}`,
+    summary: `${reference}${input.invoiceNumber?.trim() ? ` (invoice ${input.invoiceNumber.trim()})` : ""}: ${input.quantity} ${level.name}(s)${level.unitsPerPackage > 1 ? ` (${baseQuantity} ${productPackaging(item).find((row) => row.isBase)?.name ?? "units"})` : ""} × ${item.name} batch ${batchNumber} (exp ${input.expiryDate}) from ${supplier.name} WITHOUT PO — ${input.reason.trim()}`,
     outletId: item.outletId,
     severity: "warning",
   });
   return { batch, movement };
+}
+
+/** Holds an in-date batch back from sale (e.g. suspected recall, damage) or releases it again. */
+export function setBatchQuarantine(actor: Actor, batchId: string, quarantine: boolean, note: string) {
+  assertCan(actor, "alerts.manage");
+  const batch = batches.find((row) => row.id === batchId);
+  if (!batch) throw new DomainError("Batch not found.", 404);
+  assertOutletAccess(actor, batch.assignedOutletId);
+  if (note.trim().length < 3) throw new DomainError(quarantine ? "Give the reason for quarantine." : "Record why the batch is safe to release.");
+  const current = batch.disposition?.status;
+  if (quarantine) {
+    if (current) throw new DomainError(`Batch is already ${current.toLowerCase().replace("_", " ")}.`);
+    batch.disposition = { status: "QUARANTINED", by: actor.name, at: new Date().toISOString(), note: note.trim() };
+  } else {
+    if (current !== "QUARANTINED") throw new DomainError("Only a quarantined batch can be released.");
+    if (isExpired(batch)) throw new DomainError("Expired batches cannot be released for sale.");
+    batch.disposition = undefined;
+  }
+  recordAudit(actor, {
+    action: quarantine ? "compliance.quarantine" : "compliance.release",
+    entity: "Batch",
+    entityId: batch.id,
+    summary: `${quarantine ? "Quarantined" : "Released"} ${batch.availableQuantity} × ${batch.productName} batch ${batch.batchNumber} — ${note.trim()}`,
+    outletId: batch.assignedOutletId,
+    severity: "warning",
+  });
+  return batch;
 }
 
 /** Raises a pending write-off for an expired batch; a second person approves it on the Stock page. */
@@ -282,6 +240,7 @@ export function requestBatchDestruction(actor: Actor, batchId: string, note: str
     reference: `DST-${Date.now().toString().slice(-5)}`,
     type: "Adjustment",
     outletId: batch.assignedOutletId,
+    productId: batch.productId,
     productName: batch.productName,
     quantity: batch.availableQuantity,
     status: "Pending",

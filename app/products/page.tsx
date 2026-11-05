@@ -1,48 +1,35 @@
 import { DashboardShell } from "@/components/dashboard-shell";
-import { outlets, products } from "@/lib/data";
-import { ITEM_CATEGORIES } from "@/lib/erp/inventory";
-import { outletName, scopeByOutlet, sellableQuantity } from "@/lib/erp/services";
+import { outlets } from "@/lib/data";
+import { catalogLists, inventoryRows } from "@/lib/erp/products";
+import { outletName, scopeByOutlet } from "@/lib/erp/services";
+import { getStore } from "@/lib/erp/store";
 import { can } from "@/lib/rbac";
 import { requirePage } from "@/lib/session";
 
 import { ItemsWorkspace } from "./items-workspace";
 
-export default async function ProductsPage() {
+export default async function ProductsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const actor = await requirePage("products.view", "/products");
-
-  const items = scopeByOutlet(actor, products, (product) => product.outletId).map((product) => ({
-    id: product.id,
-    name: product.name,
-    genericName: product.genericName,
-    category: product.category,
-    manufacturer: product.manufacturer,
-    strength: product.strength,
-    uom: product.uom,
-    purchasePrice: product.purchasePrice,
-    sellingPrice: product.sellingPrice,
-    minStock: product.minStock,
-    stock: product.stock,
-    sellable: sellableQuantity(product.id, product.outletId),
-    status: product.status,
-    barcode: product.barcode,
-    nafdacNumber: product.nafdacNumber,
-    outletId: product.outletId,
-    rxOnly: Boolean(product.rxOnly),
-    controlled: Boolean(product.controlled),
-    locations: products.filter((other) => other.name === product.name).length,
-  }));
+  const { q } = await searchParams;
+  const { nearExpiryDays } = getStore().settings;
+  const items = inventoryRows(actor);
 
   return (
     <DashboardShell>
       <ItemsWorkspace
         items={items}
-        categories={[...ITEM_CATEGORIES]}
+        catalog={catalogLists()}
+        nearExpiryDays={nearExpiryDays}
         locations={scopeByOutlet(actor, outlets, (outlet) => outlet.id).map((outlet) => ({ id: outlet.id, name: outlet.name }))}
         scope={actor.outletId ? outletName(actor.outletId) : undefined}
+        activeOutletId={actor.outletId}
+        initialQuery={typeof q === "string" ? q : ""}
         permissions={{
           manage: can(actor, "products.manage"),
+          price: can(actor, "products.price"),
           restrict: actor.role === "SUPER_ADMIN" || actor.role === "PHARMACY_MANAGER",
           network: !actor.outletId,
+          catalog: can(actor, "catalog.manage"),
         }}
       />
     </DashboardShell>

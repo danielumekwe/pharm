@@ -97,7 +97,7 @@ export function ReportsView({ report, periods, outlets }: { report: Report; peri
   ];
 
   const pill = (active: boolean) =>
-    `rounded-lg px-3 py-1.5 text-sm transition ${active ? "bg-emerald-500 font-medium text-emerald-950" : "text-slate-300 hover:bg-slate-800"}`;
+    `rounded-lg px-3 py-1.5 text-sm transition ${active ? "bg-blue-600 font-medium text-[#fff]" : "text-slate-300 hover:bg-slate-800"}`;
 
   return (
     <div className="space-y-6">
@@ -112,7 +112,7 @@ export function ReportsView({ report, periods, outlets }: { report: Report; peri
             </ActionButton>
             <a
               href={`/api/reports/export${query({})}`}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-500 px-3 text-sm font-medium text-emerald-950 hover:bg-emerald-400"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-medium text-[#fff] hover:bg-blue-700"
             >
               <FileSpreadsheet className="h-4 w-4" /> Excel workbook
             </a>
@@ -170,7 +170,7 @@ export function ReportsView({ report, periods, outlets }: { report: Report; peri
           <SalesAreaChart data={report.trend} />
         </Panel>
         {canFinancial ? (
-        <Panel title="Profit & loss" description="Simplified operating statement for the period">
+        <Panel id="profit-loss" title="Profit & loss" description="Simplified operating statement for the period">
           <dl className="space-y-2 text-sm">
             {[
               ["Revenue (incl. VAT)", s.revenue, ""],

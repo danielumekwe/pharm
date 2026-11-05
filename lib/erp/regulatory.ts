@@ -4,7 +4,7 @@ import { outlets, products } from "@/lib/data";
 import { documentStore } from "@/lib/erp/document-storage";
 import { assertCan, DomainError, outletName, recordAudit } from "@/lib/erp/services";
 import { getStore } from "@/lib/erp/store";
-import { DOCUMENT_CATEGORIES, type Actor, type ProductRegistration, type RegulatoryDocument } from "@/lib/erp/types";
+import { DOCUMENT_CATEGORIES, REGISTRATION_STATUSES, type Actor, type ProductRegistration, type RegistrationStatus, type RegulatoryDocument } from "@/lib/erp/types";
 
 const DAY = 1000 * 60 * 60 * 24;
 /** NAFDAC renewals should be filed about six months before expiry. */
@@ -50,7 +50,7 @@ const NAFDAC_PATTERN = /^[A-Z0-9]{2}-\d{4,6}$/;
 export function updateRegistration(
   actor: Actor,
   id: string,
-  input: { nafdacNumber: string; issuedDate: string; expiryDate: string; notes?: string },
+  input: { nafdacNumber: string; issuedDate: string; expiryDate: string; notes?: string; status?: RegistrationStatus; renewalDate?: string; localRepresentative?: string },
 ) {
   assertCan(actor, "regulatory.manage");
   const registration = getStore().registrations.find((row) => row.id === id);
@@ -63,7 +63,13 @@ export function updateRegistration(
     if (Date.parse(input.expiryDate) <= Date.parse(input.issuedDate)) throw new DomainError("Expiry must be after the issue date.");
   }
 
+  if (input.status && !REGISTRATION_STATUSES.includes(input.status)) throw new DomainError("Unknown regulatory status.");
+  if (input.renewalDate && Number.isNaN(Date.parse(input.renewalDate))) throw new DomainError("Renewal date is not a valid date.");
+
   const changes: string[] = [];
+  if (input.status && input.status !== registration.status) changes.push(`status ${registration.status ?? "—"} → ${input.status}`);
+  if (input.renewalDate !== undefined && input.renewalDate !== (registration.renewalDate ?? "")) changes.push(`renewal → ${input.renewalDate || "—"}`);
+  if (input.localRepresentative !== undefined && input.localRepresentative.trim() !== (registration.localRepresentative ?? "")) changes.push(`local representative → ${input.localRepresentative.trim() || "—"}`);
   if (nafdacNumber !== registration.nafdacNumber) changes.push(`NAFDAC ${registration.nafdacNumber} → ${nafdacNumber}`);
   if (input.expiryDate !== registration.expiryDate) changes.push(`expiry ${registration.expiryDate || "—"} → ${input.expiryDate || "—"}`);
   if (input.issuedDate !== registration.issuedDate) changes.push(`issued → ${input.issuedDate || "—"}`);
@@ -73,6 +79,9 @@ export function updateRegistration(
     issuedDate: input.issuedDate,
     expiryDate: input.expiryDate,
     notes: input.notes?.trim() || undefined,
+    status: input.status ?? registration.status ?? (nafdacNumber === "Pending" ? "Pending" : "Registered"),
+    renewalDate: input.renewalDate !== undefined ? input.renewalDate || undefined : registration.renewalDate,
+    localRepresentative: input.localRepresentative !== undefined ? input.localRepresentative.trim() || undefined : registration.localRepresentative,
     updatedBy: actor.name,
     updatedAt: new Date().toISOString(),
   } satisfies Partial<ProductRegistration>);

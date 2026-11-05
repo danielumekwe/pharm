@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 
 export const inputClass =
-  "h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-50";
+  "h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-50";
 
 export function Field({ label, hint, children, className = "" }: { label: string; hint?: string; children: ReactNode; className?: string }) {
   return (
@@ -35,7 +35,7 @@ export function ActionButton({
   ...props
 }: ComponentProps<"button"> & { tone?: "primary" | "secondary" | "danger" | "ghost" }) {
   const tones = {
-    primary: "bg-emerald-500 text-emerald-950 hover:bg-emerald-400",
+    primary: "bg-blue-600 text-[#fff] shadow-sm hover:bg-blue-700",
     secondary: "border border-slate-700 bg-slate-950 text-slate-100 hover:bg-slate-800",
     danger: "border border-rose-500/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20",
     ghost: "text-slate-300 hover:bg-slate-800 hover:text-white",

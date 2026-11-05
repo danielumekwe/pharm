@@ -1,6 +1,7 @@
 // Super Administrator operations: outlets, role permissions and system settings.
 
 import { outlets, products, stockMovements, users, type Outlet } from "@/lib/data";
+import { documentStore } from "@/lib/erp/document-storage";
 import { assertCan, DomainError, outletName, recordAudit } from "@/lib/erp/services";
 import { DEFAULT_SETTINGS, getStore } from "@/lib/erp/store";
 import type { Actor, SystemSettings } from "@/lib/erp/types";
@@ -148,7 +149,7 @@ export function resetRolePermissions(actor: Actor, role: string, reason: string)
 
 // ---------------------------------------------------------------- system settings
 
-const SETTING_LIMITS: Record<Exclude<keyof SystemSettings, "businessName" | "expiryIntervals" | "nearExpiryDays" | "impersonation" | "lowStock" | "alertEmail">, [number, number, string]> = {
+const SETTING_LIMITS: Record<Exclude<keyof SystemSettings, "businessName" | "logoFile" | "expiryIntervals" | "nearExpiryDays" | "impersonation" | "lowStock" | "alertEmail" | "catalog" | "pos" | "salesTargets">, [number, number, string]> = {
   vatRate: [0, 25, "VAT rate"],
   minShelfLifeDays: [30, 730, "Minimum shelf life at receipt"],
   criticalShortagePct: [0, 100, "Critical shortage level"],
@@ -188,9 +189,12 @@ export function updateSettings(actor: Actor, input: Partial<SystemSettings>) {
   return settings;
 }
 
-export function resetSettings(actor: Actor) {
+export async function resetSettings(actor: Actor) {
   assertCan(actor, "settings.manage");
-  Object.assign(getStore().settings, DEFAULT_SETTINGS);
+  // Defaults include the built-in logo, so the uploaded one is removed rather than left orphaned.
+  const logoFile = getStore().settings.logoFile;
+  if (logoFile) await (await documentStore()).delete(logoFile);
+  Object.assign(getStore().settings, structuredClone(DEFAULT_SETTINGS));
   recordAudit(actor, { action: "settings.reset", entity: "Settings", entityId: "system", summary: "System settings reset to defaults", severity: "critical" });
   return getStore().settings;
 }
@@ -219,4 +223,30 @@ export async function updateImpersonationSettings(actor: Actor, input: { enabled
     severity: "critical",
   });
   return { ...settings, terminated };
+}
+
+// ---------------------------------------------------------------- POS rules and sales targets
+
+export function updatePosSettings(actor: Actor, input: { cashierMaxDiscountPct: number; approverMaxDiscountPct: number; salesTargets: Record<string, number> }) {
+  assertCan(actor, "settings.manage");
+  const settings = getStore().settings;
+  if (!(input.cashierMaxDiscountPct >= 0 && input.cashierMaxDiscountPct <= 100)) throw new DomainError("Cashier discount limit must be 0–100%.");
+  if (!(input.approverMaxDiscountPct >= input.cashierMaxDiscountPct && input.approverMaxDiscountPct <= 100)) throw new DomainError("The supervisor limit must be between the cashier limit and 100%.");
+  const targets: Record<string, number> = {};
+  for (const [outletId, value] of Object.entries(input.salesTargets)) {
+    if (!outlets.some((outlet) => outlet.id === outletId)) throw new DomainError("Unknown outlet in sales targets.");
+    if (!Number.isFinite(value) || value < 0) throw new DomainError("Sales targets must be zero or more.");
+    if (value > 0) targets[outletId] = Math.round(value);
+  }
+  const before = `${settings.pos.cashierMaxDiscountPct}%/${settings.pos.approverMaxDiscountPct}%`;
+  settings.pos = { cashierMaxDiscountPct: input.cashierMaxDiscountPct, approverMaxDiscountPct: input.approverMaxDiscountPct };
+  settings.salesTargets = targets;
+  recordAudit(actor, {
+    action: "settings.pos",
+    entity: "Settings",
+    entityId: "pos",
+    summary: `POS discount limits ${before} → ${input.cashierMaxDiscountPct}%/${input.approverMaxDiscountPct}%; daily targets ${Object.entries(targets).map(([id, value]) => `${outletName(id)} ₦${value.toLocaleString()}`).join(", ") || "none"}`,
+    severity: "warning",
+  });
+  return { pos: settings.pos, salesTargets: settings.salesTargets };
 }

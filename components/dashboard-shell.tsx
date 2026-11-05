@@ -3,106 +3,66 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import {
-  BarChart3,
-  Bell,
-  BellRing,
-  Boxes,
-  Building2,
-  ClipboardList,
-  CreditCard,
-  FileText,
-  HandCoins,
-  Handshake,
-  KeyRound,
-  Landmark,
-  LogOut,
-  Mail,
-  MessageSquareText,
-  PackageSearch,
-  ReceiptText,
-  Settings,
-  ShieldAlert,
-  LineChart,
-  UserCog,
-  Store,
-  ShoppingCart,
-  UserRound,
-  Users,
-  Warehouse,
-  Wrench,
-} from "lucide-react";
-import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Bell, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldAlert, Store, UserCog, X } from "lucide-react";
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
-import { BrandMark } from "@/components/brand-logo";
+import { BrandLogo, BrandWordmark } from "@/components/branding";
 import { minutesUntil } from "@/lib/format";
-import { canAccessPath, isOutletScoped, isRole, ROLE_LABELS } from "@/lib/rbac";
+import { activeHref, NAVIGATION, type NavGroup, type NavItem } from "@/lib/navigation";
+import { canAccessPath, canAny, isOutletScoped, isRole, ROLE_LABELS } from "@/lib/rbac";
 
-const navigationGroups = [
-  {
-    label: "Core",
-    items: [
-      { name: "Dashboard", href: "/dashboard", icon: BarChart3 },
-      { name: "Contacts", href: "/contacts", icon: Users },
-      { name: "Sale", href: "/sales", icon: ShoppingCart },
-      { name: "Sales overview", href: "/sales-overview", icon: LineChart },
-      { name: "Purchase", href: "/purchase", icon: ReceiptText },
-      { name: "Items", href: "/products", icon: Boxes },
-      { name: "Stock", href: "/stock", icon: Warehouse },
-      { name: "Alerts centre", href: "/alerts", icon: BellRing },
-      { name: "Batches & GRN", href: "/inventory", icon: PackageSearch },
-      { name: "Expense", href: "/finance", icon: HandCoins },
-    ],
-  },
-  {
-    label: "Add-ons",
-    items: [
-      { name: "Partners", href: "/partners", icon: Handshake },
-      { name: "Repairs", href: "/repairs", icon: Wrench },
-      { name: "SMS", href: "/sms", icon: MessageSquareText },
-      { name: "Email", href: "/email", icon: Mail },
-    ],
-  },
-  {
-    label: "Management",
-    items: [
-      { name: "Cash & Bank", href: "/billing", icon: CreditCard },
-      { name: "Warehouses", href: "/outlets", icon: Building2 },
-      { name: "Utilities", href: "/settings", icon: Settings },
-      { name: "Staff & users", href: "/users", icon: UserRound },
-      { name: "Roles & permissions", href: "/permissions", icon: KeyRound },
-      { name: "Reports", href: "/reports", icon: ClipboardList },
-      { name: "Regulatory", href: "/regulatory", icon: Landmark },
-      { name: "Audit", href: "/audit", icon: FileText },
-    ],
-  },
-];
+// ---------------------------------------------------------------- collapsed sidebar preference (per browser)
 
-function isActive(pathname: string, href: string) {
-  return pathname === href || pathname.startsWith(`${href}/`);
+const COLLAPSE_KEY = "pharm.sidebar.collapsed";
+const collapseListeners = new Set<() => void>();
+function readCollapsed() {
+  try {
+    return window.localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
+function writeCollapsed(value: boolean) {
+  try {
+    window.localStorage.setItem(COLLAPSE_KEY, value ? "1" : "0");
+  } catch {
+    // storage unavailable (private mode): keep the in-memory choice only
+  }
+  collapseListeners.forEach((listener) => listener());
+}
+function useCollapsed() {
+  return useSyncExternalStore(
+    (listener) => {
+      collapseListeners.add(listener);
+      return () => collapseListeners.delete(listener);
+    },
+    readCollapsed,
+    () => false,
+  );
+}
+
+// ---------------------------------------------------------------- notices
 
 function AccessDeniedNotice() {
   const params = useSearchParams();
   const denied = params.get("denied");
   if (!denied) return null;
   return (
-    <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+    <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
       <p>
-        Your role does not have access to <span className="font-mono text-amber-200">{denied}</span>. Ask a Super Admin to update your permissions if you need it.
+        Your role does not have access to <span className="font-mono">{denied}</span>. Ask a Super Admin to update your permissions if you need it.
       </p>
     </div>
   );
 }
 
 /** Persistent, non-dismissable banner while a Super Administrator is acting as another user. */
-function ImpersonationBanner() {
+export function ImpersonationBanner() {
   const { data: session, update } = useSession();
   const router = useRouter();
   const impersonation = session?.user.impersonation;
   const [busy, setBusy] = useState(false);
-  // Re-render every 30 s so the countdown stays current.
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!impersonation) return;
@@ -110,7 +70,6 @@ function ImpersonationBanner() {
     return () => window.clearInterval(timer);
   }, [impersonation]);
   const minutes = impersonation ? minutesUntil(impersonation.expiresAt) : 0;
-
   if (!impersonation || !session) return null;
   const roleLabel = isRole(session.user.role) ? ROLE_LABELS[session.user.role] : session.user.role;
 
@@ -124,7 +83,7 @@ function ImpersonationBanner() {
   }
 
   return (
-    <div role="alert" className="sticky top-0 z-40 flex flex-wrap items-center justify-between gap-3 border-b-2 border-amber-500 bg-amber-400 px-4 py-2 text-sm text-amber-950 print:hidden">
+    <div role="alert" className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b-2 border-amber-500 bg-amber-400 px-4 py-2 text-sm text-amber-950 print:hidden">
       <p className="flex items-center gap-2">
         <UserCog className="h-4 w-4 shrink-0" />
         <span>
@@ -138,6 +97,8 @@ function ImpersonationBanner() {
     </div>
   );
 }
+
+// ---------------------------------------------------------------- notifications
 
 type BellItem = { id: string; title: string; body: string; severity: string; link: string; createdAt: string; readAt?: string };
 type NotificationData = { unread: number; items: BellItem[] };
@@ -185,19 +146,19 @@ function NotificationBell() {
 
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen((value) => !value)} className="relative rounded-full border border-slate-700 bg-slate-900 p-2 text-slate-200 hover:bg-slate-800" aria-label={`Notifications (${data.unread} unread)`}>
-        <Bell className="h-4 w-4" />
-        {data.unread ? <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-rose-500 px-1 text-center text-[10px] font-semibold leading-5 text-white">{data.unread > 99 ? "99+" : data.unread}</span> : null}
+      <button type="button" onClick={() => setOpen((value) => !value)} className="relative rounded-lg p-2 text-slate-600 hover:bg-slate-100" aria-label={`Notifications (${data.unread} unread)`}>
+        <Bell className="h-5 w-5" />
+        {data.unread ? <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-rose-500 px-1 text-center text-[10px] font-semibold leading-4 text-white">{data.unread > 99 ? "99+" : data.unread}</span> : null}
       </button>
       {open ? (
-        <div className="absolute right-0 top-full z-40 mt-2 w-96 max-w-[90vw] overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
-          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-            <p className="font-semibold text-white">Notifications</p>
-            {data.unread ? <button type="button" onClick={() => void markRead("all")} className="text-xs font-medium text-emerald-300 hover:underline">Mark all read</button> : null}
+        <div className="absolute right-0 top-full z-50 mt-2 w-96 max-w-[90vw] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <p className="font-semibold text-slate-900">Notifications</p>
+            {data.unread ? <button type="button" onClick={() => void markRead("all")} className="text-xs font-medium text-blue-600 hover:underline">Mark all read</button> : null}
           </div>
-          <ul className="max-h-96 divide-y divide-slate-800 overflow-y-auto">
+          <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
             {data.items.length === 0 ? <li className="px-4 py-6 text-center text-sm text-slate-500">No notifications yet.</li> : null}
-            {data.items.map((item) => (
+            {data.items.slice(0, 20).map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
@@ -206,27 +167,29 @@ function NotificationBell() {
                     setOpen(false);
                     router.push(item.link);
                   }}
-                  className={`flex w-full gap-3 px-4 py-3 text-left hover:bg-slate-800/50 ${item.readAt ? "opacity-60" : ""}`}
+                  className={`flex w-full gap-3 px-4 py-3 text-left hover:bg-slate-50 ${item.readAt ? "opacity-60" : ""}`}
                 >
                   <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${tone(item.severity)}`} />
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium text-white">{item.title}</span>
-                    <span className="mt-0.5 block whitespace-pre-line text-xs text-slate-400">{item.body}</span>
-                    <span className="mt-1 block text-[11px] text-slate-500">{new Date(item.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                    <span className="block text-sm font-medium text-slate-900">{item.title}</span>
+                    <span className="mt-0.5 block whitespace-pre-line text-xs text-slate-500">{item.body}</span>
+                    <span className="mt-1 block text-[11px] text-slate-400">{new Date(item.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                   </span>
                 </button>
               </li>
             ))}
           </ul>
-          <Link href="/alerts" onClick={() => setOpen(false)} className="block border-t border-slate-800 px-4 py-2.5 text-center text-sm font-medium text-emerald-300 hover:bg-slate-800/50">Open alerts centre</Link>
+          <Link href="/notifications" onClick={() => setOpen(false)} className="block border-t border-slate-100 px-4 py-2.5 text-center text-sm font-medium text-blue-600 hover:bg-slate-50">View all notifications</Link>
         </div>
       ) : null}
     </div>
   );
 }
 
-/** Lets multi-outlet and central users change their working outlet. The server re-validates every switch. */
-function OutletSwitcher({ compact = false }: { compact?: boolean }) {
+// ---------------------------------------------------------------- outlet context
+
+/** Shows the working outlet; multi-outlet and central users may switch. The server re-validates every switch. */
+export function OutletSwitcher() {
   const { data: session, update } = useSession();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -235,17 +198,14 @@ function OutletSwitcher({ compact = false }: { compact?: boolean }) {
   if (!user) return null;
 
   const central = !isOutletScoped(user.role);
-  const options = [
-    ...(central ? [{ id: "HQ", name: "All outlets (Head Office)" }] : []),
-    ...(user.outlets ?? []).map((outlet) => ({ id: outlet.id, name: outlet.name })),
-  ];
+  const options = [...(central ? [{ id: "HQ", name: "All outlets (Head Office)" }] : []), ...(user.outlets ?? []).map((outlet) => ({ id: outlet.id, name: outlet.name }))];
   const current = user.outletId ?? "HQ";
   const label = options.find((option) => option.id === current)?.name ?? "Select outlet";
 
   if (options.length <= 1) {
     return (
-      <div className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${compact ? "border-white/25 bg-white/10 text-white" : "border-green-600/30 bg-green-50 text-green-800"}`}>
-        <Store className="h-3.5 w-3.5" /> {label}
+      <div className="flex max-w-56 items-center gap-1.5 truncate rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-800" title="Assigned outlet">
+        <Store className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{label}</span>
       </div>
     );
   }
@@ -269,15 +229,10 @@ function OutletSwitcher({ compact = false }: { compact?: boolean }) {
 
   return (
     <div className="relative">
-      <label className={`flex items-center gap-1.5 rounded-full border py-0.5 pl-3 pr-1 text-xs font-medium ${compact ? "border-white/25 bg-white/10 text-white" : "border-green-600/30 bg-green-50 text-green-800"}`}>
+      <label className="flex items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 py-0.5 pl-3 pr-1 text-xs font-medium text-blue-800">
         <Store className="h-3.5 w-3.5 shrink-0" />
         <span className="sr-only">Working outlet</span>
-        <select
-          value={current}
-          disabled={busy}
-          onChange={(event) => void change(event.target.value)}
-          className={`max-w-48 cursor-pointer truncate rounded-full bg-transparent py-1 pr-1 outline-none ${compact ? "text-white [&>option]:text-slate-900" : ""}`}
-        >
+        <select value={current} disabled={busy} onChange={(event) => void change(event.target.value)} className="max-w-48 cursor-pointer truncate bg-transparent py-1 pr-1 outline-none">
           {options.map((option) => (
             <option key={option.id} value={option.id}>
               {option.name}
@@ -290,156 +245,269 @@ function OutletSwitcher({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function SignOutButton({ compact = false }: { compact?: boolean }) {
+// ---------------------------------------------------------------- global search
+
+function GlobalSearch({ items, canSearchProducts, canSearchStockLevels, canSearchSales }: { items: NavItem[]; canSearchProducts: boolean; canSearchStockLevels: boolean; canSearchSales: boolean }) {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")) {
+        event.preventDefault();
+        input.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const needle = query.trim().toLowerCase();
+  const results = useMemo(() => {
+    if (!needle) return [];
+    const pages = items.filter((item) => `${item.name} ${item.keywords ?? ""}`.toLowerCase().includes(needle)).slice(0, 6).map((item) => ({ label: item.name, hint: "Go to page", href: item.href }));
+    const records = [
+      ...(canSearchProducts ? [{ label: `Products matching “${query.trim()}”`, hint: "Name, barcode, SKU or batch", href: `/products?q=${encodeURIComponent(query.trim())}` }] : []),
+      ...(!canSearchProducts && canSearchStockLevels ? [{ label: `Stock left for “${query.trim()}”`, hint: "Quantity available", href: `/stock-levels?q=${encodeURIComponent(query.trim())}` }] : []),
+      ...(canSearchSales ? [{ label: `Sales matching “${query.trim()}”`, hint: "Invoice, customer or cashier", href: `/sales?q=${encodeURIComponent(query.trim())}` }] : []),
+    ];
+    return [...pages, ...records];
+  }, [needle, items, canSearchProducts, canSearchStockLevels, canSearchSales, query]);
+
+  function go(href: string) {
+    setOpen(false);
+    setQuery("");
+    input.current?.blur();
+    router.push(href);
+  }
+
   return (
-    <form action="/api/auth/signout" method="post" className={compact ? "md:hidden" : "mt-3"}>
-      <button
-        type="submit"
-        className={`flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-white/25 bg-white/10 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/20 ${compact ? "" : "w-full"}`}
-      >
-        <LogOut className="h-4 w-4" />
-        Sign out
-      </button>
-    </form>
+    <div className="relative w-full max-w-md">
+      <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+      <input
+        ref={input}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && results[0]) go(results[0].href);
+          if (event.key === "Escape") setOpen(false);
+        }}
+        placeholder="Search pages, products, sales…  ( / )"
+        aria-label="Global search"
+        className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+      />
+      {open && results.length ? (
+        <ul className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
+          {results.map((result) => (
+            <li key={result.href}>
+              <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => go(result.href)} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-blue-50">
+                <span className="text-slate-800">{result.label}</span>
+                <span className="text-[11px] text-slate-400">{result.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
-// Same backdrop as the welcome screen's left panel.
-const sidebarBackdrop = {
-  backgroundImage:
-    "radial-gradient(ellipse 80% 30% at 0% 100%, rgba(163,230,53,0.18), transparent 70%), linear-gradient(170deg, #0a4d29 0%, #0d6a33 55%, #12813c 100%)",
-};
+// ---------------------------------------------------------------- sidebar
 
-export function DashboardShell({ children }: { children: ReactNode }) {
-  const pathname = usePathname() ?? "";
-  const { data: session, status } = useSession();
+function SidebarNav({ groups, current, collapsed, onNavigate }: { groups: NavGroup[]; current: string | null; collapsed: boolean; onNavigate?: () => void }) {
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  return (
+    <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-4" aria-label="Main navigation">
+      {groups.map((group) => {
+        const hasActive = group.items.some((item) => item.href === current);
+        const isClosed = !collapsed && closed[group.label] && !hasActive;
+        return (
+          <div key={group.label}>
+            {collapsed ? (
+              <div className="mx-2 mb-2 border-t border-slate-100" />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setClosed((value) => ({ ...value, [group.label]: !value[group.label] }))}
+                className="mb-1 flex w-full items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 hover:text-slate-600"
+                aria-expanded={!isClosed}
+              >
+                {group.label}
+                <ChevronDown className={`h-3.5 w-3.5 transition ${isClosed ? "-rotate-90" : ""}`} />
+              </button>
+            )}
+            {isClosed ? null : (
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const active = item.href === current;
+                  const Icon = item.icon;
+                  if (item.highlight) {
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={onNavigate}
+                        aria-current={active ? "page" : undefined}
+                        title={collapsed ? item.name : undefined}
+                        className={`my-1 flex items-center gap-3 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-bold text-white shadow-sm shadow-blue-600/30 transition hover:bg-blue-700 ${active ? "ring-2 ring-blue-300 ring-offset-1" : ""} ${collapsed ? "justify-center px-0" : ""}`}
+                      >
+                        <Icon className="h-5 w-5 shrink-0 text-white" />
+                        {collapsed ? <span className="sr-only">{item.name}</span> : item.name}
+                      </Link>
+                    );
+                  }
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={onNavigate}
+                      aria-current={active ? "page" : undefined}
+                      title={collapsed ? item.name : undefined}
+                      className={`relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${collapsed ? "justify-center px-0" : ""} ${
+                        active ? "bg-blue-50 font-semibold text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      }`}
+                    >
+                      {active && !collapsed ? <span className="absolute -left-3 bottom-1.5 top-1.5 w-1 rounded-r-full bg-blue-600" /> : null}
+                      <Icon className={`h-[18px] w-[18px] shrink-0 ${active ? "text-blue-600" : "text-slate-400"}`} />
+                      {collapsed ? <span className="sr-only">{item.name}</span> : <span className="truncate">{item.name}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+function Brand({ collapsed }: { collapsed: boolean }) {
+  return (
+    <Link href="/dashboard" className={`flex h-20 items-center px-4 ${collapsed ? "justify-center px-0" : ""}`} aria-label="Dashboard">
+      {collapsed ? <BrandLogo className="h-10 w-10" /> : <BrandWordmark className="h-16 w-auto max-w-full" />}
+    </Link>
+  );
+}
+
+function UserMenu() {
+  const { data: session } = useSession();
+  const [open, setOpen] = useState(false);
   const user = session?.user;
-  const role = user?.role;
-  const roleLabel = isRole(role) ? ROLE_LABELS[role] : status === "loading" ? "Loading…" : "Guest";
-  const outlet = user?.outletId ? (user.outlets ?? []).find((row) => row.id === user.outletId) ?? null : null;
+  const roleLabel = isRole(user?.role) ? ROLE_LABELS[user!.role as keyof typeof ROLE_LABELS] : "";
+  const initials = (user?.name ?? "?").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen((value) => !value)} className="flex items-center gap-2 rounded-xl p-1 pr-2 hover:bg-slate-100" aria-label="Account menu">
+        <span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-600 text-sm font-semibold text-white">{initials}</span>
+        <span className="hidden text-left lg:block">
+          <span className="block max-w-36 truncate text-sm font-semibold text-slate-900">{user?.name ?? "…"}</span>
+          <span className="block text-[11px] text-slate-500">{roleLabel}</span>
+        </span>
+        <ChevronDown className="hidden h-4 w-4 text-slate-400 lg:block" />
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+          <p className="font-semibold text-slate-900">{user?.name}</p>
+          <p className="text-xs text-slate-500">{roleLabel}{user?.staffId ? ` · ${user.staffId}` : ""}</p>
+          <p className="mt-1 truncate text-xs text-slate-500">{user?.email}</p>
+          <form action="/api/auth/signout" method="post" className="mt-3">
+            <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              <LogOut className="h-4 w-4" /> Sign out
+            </button>
+          </form>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
-  // Keep the current module visible when the sidebar menu is taller than the screen.
+// ---------------------------------------------------------------- shell
+
+function Shell({ children }: { children: ReactNode }) {
+  const pathname = usePathname() ?? "";
+  const search = useSearchParams();
+  const { data: session, status } = useSession();
+  const collapsed = useCollapsed();
+  const [drawer, setDrawer] = useState(false);
+  const user = session?.user;
+  const subject = user ? { role: user.role, permissions: user.permissions ?? [] } : user;
+
+  // Menu items follow the live permission list; pages and APIs enforce access again on the server.
+  const groups = NAVIGATION.map((group) => ({ ...group, items: group.items.filter((item) => status === "loading" || (canAccessPath(subject, item.href) && (!item.requires || canAny(subject, item.requires)) && !(item.hiddenFor && canAny(subject, item.hiddenFor)))) })).filter((group) => group.items.length > 0);
+  const flat = groups.flatMap((group) => group.items);
+  const current = activeHref(flat, pathname, new URLSearchParams(search?.toString() ?? ""));
+  const can = (href: string) => canAccessPath(subject, href);
+
   useEffect(() => {
     document.querySelector('aside [aria-current="page"]')?.scrollIntoView({ block: "nearest" });
   }, [pathname, status]);
 
-  // While the session loads, show the full menu to avoid layout flicker; the proxy and pages enforce access.
-  // Menu visibility uses the live permission list from the session; pages and APIs enforce it again server-side.
-  const subject = user ? { role: user.role, permissions: user.permissions ?? [] } : role;
-  const groups = navigationGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => status === "loading" || canAccessPath(subject, item.href)),
-    }))
-    .filter((group) => group.items.length > 0);
-
   return (
-    <div className="min-h-screen bg-[#eef3f0] text-slate-900">
-      <div className="flex min-h-screen">
-        <aside
-          className="sticky top-0 hidden h-screen w-72 print:!hidden shrink-0 flex-col border-r-4 border-lime-400 p-5 text-white md:flex"
-          style={sidebarBackdrop}
-        >
-          <div className="mb-5 flex items-center gap-3">
-            <div className="rounded-xl bg-white p-1 shadow-md">
-              <BrandMark id="sidebar" className="h-10 w-10" />
-            </div>
-            <div>
-              <p className="text-lg font-bold leading-tight tracking-tight">Pharmacy ERP</p>
-              <p className="text-[11px] text-emerald-50/75">Management &amp; ERP System</p>
-            </div>
-          </div>
-
-          <nav className="-mr-2 flex-1 space-y-4 overflow-y-auto pr-2">
-            {groups.map((group) => (
-              <div key={group.label}>
-                <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-emerald-50/55">{group.label}</p>
-                <div className="space-y-1">
-                  {group.items.map(({ name, href, icon: Icon }) => {
-                    const active = isActive(pathname, href);
-                    return (
-                      <Link
-                        key={name}
-                        href={href}
-                        aria-current={active ? "page" : undefined}
-                        className={`relative flex items-center gap-3 rounded-xl px-3 py-1.5 text-sm transition ${
-                          active
-                            ? "bg-white font-semibold text-green-800 shadow-sm"
-                            : "text-emerald-50/90 hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        {active ? <span className="absolute -left-5 top-1.5 bottom-1.5 w-1 rounded-r-full bg-lime-400" /> : null}
-                        <Icon className={`h-4 w-4 ${active ? "text-green-700" : ""}`} />
-                        {name}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
-
-          <div className="mt-3 rounded-2xl border border-white/20 bg-white/10 p-3.5 backdrop-blur-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-50/60">Signed in</p>
-            <p className="mt-1.5 truncate text-base font-semibold">{user?.name ?? "…"}</p>
-            <p className="text-sm text-emerald-50/80">{roleLabel}</p>
-            <p className="mt-1 truncate text-xs text-lime-200">{outlet ? outlet.name : "Head Office · All outlets"}</p>
-            {user?.staffId ? <p className="truncate font-mono text-[11px] text-emerald-50/60">{user.staffId}</p> : null}
-            <SignOutButton />
-          </div>
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <ImpersonationBanner />
+      <div className="flex">
+        {/* Desktop sidebar */}
+        <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] md:flex print:!hidden ${collapsed ? "w-[76px]" : "w-64"}`}>
+          <Brand collapsed={collapsed} />
+          <SidebarNav groups={groups} current={current} collapsed={collapsed} />
         </aside>
 
-        <main className="min-w-0 flex-1">
-          <ImpersonationBanner />
-          <div className="flex items-center gap-3 border-b-4 border-lime-400 px-4 py-3 text-white md:hidden print:hidden" style={sidebarBackdrop}>
-            <div className="rounded-lg bg-white p-0.5">
-              <BrandMark id="mobile" className="h-8 w-8" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-bold leading-tight">Pharmacy ERP</p>
-              <p className="truncate text-[11px] text-emerald-50/80">{user?.name ?? "…"} · {roleLabel}</p>
-              <div className="mt-1"><OutletSwitcher compact /></div>
-            </div>
-            <SignOutButton compact />
+        {/* Mobile drawer */}
+        {drawer ? (
+          <div className="fixed inset-0 z-50 md:hidden print:hidden">
+            <button type="button" aria-label="Close menu" className="absolute inset-0 bg-slate-900/40" onClick={() => setDrawer(false)} />
+            <aside className="relative flex h-full w-72 max-w-[85vw] flex-col bg-white shadow-2xl">
+              <div className="flex items-center justify-between pr-3">
+                <Brand collapsed={false} />
+                <button type="button" onClick={() => setDrawer(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close menu"><X className="h-5 w-5" /></button>
+              </div>
+              <SidebarNav groups={groups} current={current} collapsed={false} onNavigate={() => setDrawer(false)} />
+            </aside>
           </div>
+        ) : null}
 
-          <div className="theme-pharm p-4 md:p-8">
-          <div className="mb-6 flex items-center justify-between gap-3 print:hidden">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-green-700">Operations</p>
-              <h2 className="mt-1 text-xl font-bold text-white md:text-2xl">Pharmacy management center</h2>
-              <span className="mt-1.5 block h-1 w-16 rounded-full bg-lime-400" />
-            </div>
-            <div className="flex items-center gap-2">
-              <OutletSwitcher />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-40 flex h-16 items-center gap-2 border-b border-slate-200 bg-white/95 px-3 backdrop-blur md:gap-3 md:px-5 print:hidden">
+            <button type="button" onClick={() => setDrawer(true)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden" aria-label="Open menu"><Menu className="h-5 w-5" /></button>
+            <button type="button" onClick={() => writeCollapsed(!collapsed)} className="hidden rounded-lg p-2 text-slate-500 hover:bg-slate-100 md:block" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
+              {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+            </button>
+            <GlobalSearch items={flat} canSearchProducts={can("/products")} canSearchStockLevels={can("/stock-levels")} canSearchSales={can("/sales")} />
+            <div className="ml-auto flex items-center gap-1.5 md:gap-2">
+              <div className="hidden sm:block"><OutletSwitcher /></div>
               <NotificationBell />
-              <div className="hidden rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-sm font-medium text-slate-200 md:block">{roleLabel}</div>
+              {can("/settings") ? (
+                <Link href="/settings" className="hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:block" aria-label="System settings"><Settings className="h-5 w-5" /></Link>
+              ) : null}
+              <UserMenu />
             </div>
-          </div>
+          </header>
+          <div className="border-b border-slate-200 bg-white px-3 py-2 sm:hidden print:hidden"><OutletSwitcher /></div>
 
-          <nav className="-mx-4 mb-5 flex gap-2 overflow-x-auto px-4 pb-1 md:hidden print:hidden" aria-label="Modules">
-            {groups.flatMap((group) => group.items).map(({ name, href, icon: Icon }) => (
-              <Link
-                key={name}
-                href={href}
-                className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
-                  isActive(pathname, href) ? "border-green-700 bg-green-700 text-white" : "border-slate-700 bg-slate-900 text-slate-300"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {name}
-              </Link>
-            ))}
-          </nav>
-
-          <Suspense fallback={null}>
+          <main className="theme-pharm min-w-0 flex-1 p-4 md:p-6">
             <AccessDeniedNotice />
-          </Suspense>
-
-          {children}
-          </div>
-        </main>
+            {children}
+          </main>
+        </div>
       </div>
     </div>
+  );
+}
+
+export function DashboardShell({ children }: { children: ReactNode }) {
+  // useSearchParams needs a Suspense boundary.
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-100" />}>
+      <Shell>{children}</Shell>
+    </Suspense>
   );
 }

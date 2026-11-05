@@ -1,7 +1,7 @@
 // Management reports computed from live ERP data.
 
 import { batches, outlets, products } from "@/lib/data";
-import { daysToExpiry, isExpired, outletName } from "@/lib/erp/services";
+import { daysToExpiry, isExpired, outletName, saleTenders } from "@/lib/erp/services";
 import { getStore } from "@/lib/erp/store";
 import type { Actor } from "@/lib/erp/types";
 import { can, isOutletScoped } from "@/lib/rbac";
@@ -112,11 +112,11 @@ export function buildReport(actor: Actor, options: ReportOptions) {
     .sort((a, b) => b.revenue - a.revenue);
 
   // ---- by payment method
-  const byMethod = ["Cash", "Card", "Transfer", "Credit", "HMO"].map((method) => {
-    const rows = sales.filter((sale) => sale.paymentMethod === method);
-    const amount = rows.reduce((sum, sale) => sum + sale.total, 0);
-    return { method, invoices: rows.length, amount, share: pct(amount, revenue) };
-  });
+  const byMethod = ["Cash", "Card", "Transfer", "Credit", "HMO", "Account"].map((method) => {
+    const rows = sales.filter((sale) => saleTenders(sale).some((row) => row.method === method));
+    const amount = sales.reduce((sum, sale) => sum + saleTenders(sale).filter((row) => row.method === method).reduce((acc, row) => acc + row.amount, 0), 0);
+    return { method: method === "Card" ? "POS terminal" : method, invoices: rows.length, amount, share: pct(amount, revenue) };
+  }).filter((row) => row.invoices > 0 || ["Cash", "POS terminal", "Transfer"].includes(row.method));
 
   // ---- stock valuation & expiry exposure (point in time)
   const stock = outlets

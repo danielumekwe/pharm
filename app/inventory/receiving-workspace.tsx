@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { AlertOctagon, CalendarClock, PackageCheck, PackagePlus, Trash2, Truck } from "lucide-react";
+import { AlertOctagon, Camera, CalendarClock, PackageCheck, PackagePlus, Trash2, Truck } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { DataTable, type Column } from "@/components/erp/data-table";
@@ -14,6 +15,7 @@ import { TabBar } from "@/components/erp/tabs";
 import { useAction } from "@/components/erp/use-action";
 import type { StockMovement } from "@/lib/data";
 import { compactMoney, isoDaysFromNow, money, shortDate } from "@/lib/format";
+import { isNativeApp, nativeScan } from "@/lib/native";
 
 type BatchRow = {
   id: string;
@@ -32,6 +34,14 @@ type BatchRow = {
   state: string;
   destructionPending: boolean;
 };
+type ReceivableItem = {
+  id: string;
+  name: string;
+  location: string;
+  cost: number;
+  barcodes: string[];
+  packaging: { id: string; name: string; unitsPerPackage: number; cost: number; barcodes: string[] }[];
+};
 type Receipt = StockMovement & { location: string; direct: boolean };
 type Delivery = { id: string; number: string; supplierName: string; location: string; expectedDate: string; outstanding: number; value: number; status: string };
 
@@ -47,12 +57,14 @@ export function ReceivingWorkspace({
   batches: BatchRow[];
   receipts: Receipt[];
   deliveries: Delivery[];
-  items: { id: string; name: string; location: string; cost: number }[];
+  items: ReceivableItem[];
   suppliers: { id: string; name: string }[];
   scope?: string;
   permissions: { receive: boolean; destroy: boolean };
 }) {
-  const [receiving, setReceiving] = useState(false);
+  // ?receive=1 (e.g. the dashboard RECEIVE STOCK action) opens the receipt form straight away.
+  const params = useSearchParams();
+  const [receiving, setReceiving] = useState(() => permissions.receive && params?.get("receive") === "1");
   const [destroying, setDestroying] = useState<BatchRow | null>(null);
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = isoDaysFromNow(-30).slice(0, 10);
@@ -86,7 +98,7 @@ export function ReceivingWorkspace({
   ];
 
   const receiptColumns: Column<Receipt>[] = [
-    { key: "ref", header: "GRN", value: (row) => row.reference, render: (row) => <span className="font-mono text-xs text-white">{row.reference}</span> },
+    { key: "ref", header: "GRN", value: (row) => row.reference, render: (row) => <div><span className="font-mono text-xs text-white">{row.reference}</span>{row.invoiceNumber || row.purchaseReference ? <p className="text-[11px] text-slate-500">{[row.invoiceNumber && `Inv ${row.invoiceNumber}`, row.purchaseReference].filter(Boolean).join(" · ")}</p> : null}</div> },
     { key: "date", header: "Date", value: (row) => row.date, render: (row) => <span className="text-slate-400">{shortDate(row.date)}</span> },
     { key: "item", header: "Item", value: (row) => row.productName, render: (row) => row.productName },
     { key: "loc", header: "Location", value: (row) => row.location, render: (row) => row.location.replace(/^Outlet \d - /, "") },
@@ -185,61 +197,140 @@ export function ReceivingWorkspace({
   );
 }
 
-function DirectReceiptModal({
-  items,
-  suppliers,
-  onClose,
-}: {
-  items: { id: string; name: string; location: string; cost: number }[];
-  suppliers: { id: string; name: string }[];
-  onClose: () => void;
-}) {
+function DirectReceiptModal({ items, suppliers, onClose }: { items: ReceivableItem[]; suppliers: { id: string; name: string }[]; onClose: () => void }) {
   const { run, error, busy } = useAction();
+  const first = items[0];
   const [form, setForm] = useState(() => ({
-    productId: items[0]?.id ?? "",
+    productId: first?.id ?? "",
+    packagingId: first?.packaging[first.packaging.length - 1]?.id ?? "",
     supplierId: suppliers[0]?.id ?? "",
     quantity: "",
-    unitCost: String(items[0]?.cost ?? ""),
+    unitCost: String(first?.packaging[first.packaging.length - 1]?.cost ?? first?.cost ?? ""),
     batchNumber: "",
+    supplierBatchRef: "",
+    regulatoryNumber: "",
+    invoiceNumber: "",
+    purchaseReference: "",
     manufacturingDate: isoDaysFromNow(-60).slice(0, 10),
     expiryDate: isoDaysFromNow(540).slice(0, 10),
     reason: "",
   }));
+  const [scan, setScan] = useState("");
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
   const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((current) => ({ ...current, [key]: event.target.value }));
+  const item = items.find((row) => row.id === form.productId);
+  const pack = item?.packaging.find((row) => row.id === form.packagingId) ?? item?.packaging[item.packaging.length - 1];
+  const baseUnit = item?.packaging[item.packaging.length - 1]?.name ?? "units";
+  const baseQuantity = pack ? (Number(form.quantity) || 0) * pack.unitsPerPackage : 0;
+
+  function choose(productId: string, packagingId?: string) {
+    const next = items.find((row) => row.id === productId);
+    const level = next?.packaging.find((row) => row.id === packagingId) ?? next?.packaging[next.packaging.length - 1];
+    setForm((current) => ({ ...current, productId, packagingId: level?.id ?? "", unitCost: String(level?.cost ?? next?.cost ?? current.unitCost) }));
+  }
+
+  function scanCode(raw: string) {
+    const code = raw.trim();
+    if (!code) return;
+    for (const row of items) {
+      const level = row.packaging.find((candidate) => candidate.barcodes.includes(code));
+      if (level || row.barcodes.includes(code)) {
+        choose(row.id, level?.id);
+        setScan("");
+        setScanMessage(`${row.name}${level ? ` · ${level.name}` : ""}`);
+        return;
+      }
+    }
+    setScanMessage(`No item with barcode ${code}.`);
+  }
 
   return (
     <Modal open title="Direct goods receipt" description="For deliveries without a purchase order. Flagged on the audit trail; same batch and expiry rules as PO receipts." onClose={onClose} wide>
       <div className="grid gap-3">
-        <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Item & location">
-            <SelectInput
-              value={form.productId}
-              onChange={(event) => {
-                const item = items.find((row) => row.id === event.target.value);
-                setForm((current) => ({ ...current, productId: event.target.value, unitCost: String(item?.cost ?? current.unitCost) }));
+        <div className="grid gap-3 md:grid-cols-[1fr_2fr_1.2fr]">
+          <Field label="Scan barcode" hint={scanMessage ?? "Selects the item and pack size"}>
+            <div className="flex gap-2">
+            <TextInput
+              value={scan}
+              onChange={(event) => setScan(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  scanCode(scan);
+                }
               }}
-              options={items.map((row) => ({ value: row.id, label: `${row.name} — ${row.location}` }))}
+              placeholder="Scan carton or pack"
+              aria-label="Scan barcode"
             />
+            <ActionButton
+              tone="secondary"
+              className="native-only"
+              aria-label="Scan with camera"
+              onClick={() => {
+                if (!isNativeApp()) return;
+                nativeScan().then((code) => code && scanCode(code)).catch((error: unknown) => setScanMessage(error instanceof Error ? error.message : "Camera scan failed."));
+              }}
+            >
+              <Camera className="h-4 w-4" />
+            </ActionButton>
+            </div>
+          </Field>
+          <Field label="Item & location">
+            <SelectInput value={form.productId} onChange={(event) => choose(event.target.value)} options={items.map((row) => ({ value: row.id, label: `${row.name} — ${row.location}` }))} />
           </Field>
           <Field label="Supplier"><SelectInput value={form.supplierId} onChange={set("supplierId")} options={suppliers.map((row) => ({ value: row.id, label: row.name }))} /></Field>
         </div>
-        <div className="grid gap-3 md:grid-cols-5">
-          <Field label="Batch no."><TextInput value={form.batchNumber} onChange={set("batchNumber")} placeholder="e.g. AMX-3520" /></Field>
-          <Field label="Quantity"><TextInput type="number" min={1} value={form.quantity} onChange={set("quantity")} /></Field>
-          <Field label="Unit cost (₦)"><TextInput type="number" min={1} value={form.unitCost} onChange={set("unitCost")} /></Field>
-          <Field label="Mfg date"><TextInput type="date" value={form.manufacturingDate} onChange={set("manufacturingDate")} /></Field>
-          <Field label="Expiry date"><TextInput type="date" value={form.expiryDate} onChange={set("expiryDate")} /></Field>
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+          <Field label="Batch / lot no."><TextInput value={form.batchNumber} onChange={set("batchNumber")} placeholder="e.g. AMX-3520" /></Field>
+          <Field label="Supplier batch ref."><TextInput value={form.supplierBatchRef} onChange={set("supplierBatchRef")} placeholder="Optional" /></Field>
+          <Field label="NAFDAC no. on pack"><TextInput value={form.regulatoryNumber} onChange={set("regulatoryNumber")} placeholder="Optional, A4-12345" /></Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Mfg date"><TextInput type="date" value={form.manufacturingDate} onChange={set("manufacturingDate")} /></Field>
+            <Field label="Expiry"><TextInput type="date" value={form.expiryDate} onChange={set("expiryDate")} /></Field>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Quantity" hint={pack && pack.unitsPerPackage > 1 && baseQuantity ? `= ${baseQuantity.toLocaleString()} ${baseUnit}` : undefined}><TextInput type="number" min={1} value={form.quantity} onChange={set("quantity")} /></Field>
+          <Field label="Counted in">
+            <SelectInput
+              value={pack?.id ?? ""}
+              onChange={(event) => {
+                const level = item?.packaging.find((row) => row.id === event.target.value);
+                setForm((current) => ({ ...current, packagingId: event.target.value, unitCost: String(level?.cost ?? current.unitCost) }));
+              }}
+              options={(item?.packaging ?? []).map((row) => ({ value: row.id, label: `${row.name}${row.unitsPerPackage > 1 ? ` (${row.unitsPerPackage} ${baseUnit})` : ""}` }))}
+            />
+          </Field>
+          <Field label={`Cost per ${pack?.name.toLowerCase() ?? "unit"} (₦)`} hint={Number(form.quantity) > 0 ? `Total ${money((Number(form.quantity) || 0) * (Number(form.unitCost) || 0))}` : undefined}><TextInput type="number" min={0} step="0.01" value={form.unitCost} onChange={set("unitCost")} /></Field>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Supplier invoice / delivery note no."><TextInput value={form.invoiceNumber} onChange={set("invoiceNumber")} placeholder="e.g. INV-88213" /></Field>
+          <Field label="Purchase reference" hint="Your internal order or requisition number, if any"><TextInput value={form.purchaseReference} onChange={set("purchaseReference")} /></Field>
         </div>
         <Field label="Why is there no PO?"><TextInput value={form.reason} onChange={set("reason")} placeholder="e.g. Emergency insulin top-up approved by phone by the pharmacy manager" /></Field>
-        <p className="text-xs text-slate-500">Stock with under 6 months to expiry is rejected. Duplicate batch numbers for the same item are blocked.</p>
+        <p className="text-xs text-slate-500">Short-dated stock is rejected. Duplicate batch numbers for the same item are blocked. Stock is posted to the ledger in {baseUnit}s.</p>
         <FormError message={error} />
         <div className="flex justify-end gap-2">
           <ActionButton tone="secondary" onClick={onClose}>Cancel</ActionButton>
           <ActionButton
             disabled={busy || !form.batchNumber || !(Number(form.quantity) > 0) || form.reason.trim().length < 3}
             onClick={async () => {
-              const ok = await run("/api/batches", "POST", { ...form, quantity: Math.floor(Number(form.quantity)), unitCost: Number(form.unitCost) });
+              const ok = await run("/api/batches", "POST", {
+                productId: form.productId,
+                supplierId: form.supplierId,
+                packagingId: pack?.id,
+                quantity: Math.floor(Number(form.quantity)),
+                unitCost: Number(form.unitCost),
+                batchNumber: form.batchNumber,
+                supplierBatchRef: form.supplierBatchRef || undefined,
+                regulatoryNumber: form.regulatoryNumber || undefined,
+                invoiceNumber: form.invoiceNumber || undefined,
+                purchaseReference: form.purchaseReference || undefined,
+                manufacturingDate: form.manufacturingDate,
+                expiryDate: form.expiryDate,
+                reason: form.reason,
+              });
               if (ok) onClose();
             }}
           >

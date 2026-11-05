@@ -31,6 +31,11 @@ const STATUS_TONES: Record<string, Tone> = {
   "On hold": "rose",
   Expired: "rose",
   RESTRICTED: "rose",
+  INACTIVE: "slate",
+  DISCONTINUED: "rose",
+  Quarantined: "rose",
+  Depleted: "slate",
+  Registered: "emerald",
   critical: "rose",
 };
 

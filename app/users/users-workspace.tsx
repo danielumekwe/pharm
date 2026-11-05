@@ -223,7 +223,7 @@ export function UsersWorkspace(props: {
               <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="rounded-lg bg-slate-950/60 p-2"><dt className="text-slate-500">Sales mgr</dt><dd className="text-base font-semibold text-white">{count("SALES_MANAGER")}</dd></div>
                 <div className="rounded-lg bg-slate-950/60 p-2"><dt className="text-slate-500">Stock mgr</dt><dd className="text-base font-semibold text-white">{count("STOCK_MANAGER")}</dd></div>
-                <div className="rounded-lg bg-slate-950/60 p-2"><dt className="text-slate-500">Staff</dt><dd className="text-base font-semibold text-white">{count("STAFF")}</dd></div>
+                <div className="rounded-lg bg-slate-950/60 p-2"><dt className="text-slate-500">Cashiers / staff</dt><dd className="text-base font-semibold text-white">{count("CASHIER") + count("STAFF")}</dd></div>
               </dl>
               <p className={`mt-2 text-xs ${gaps.length ? "text-amber-300" : "text-slate-500"}`}>{gaps.length ? gaps.join(" · ") : `${team.length} people assigned`}</p>
             </div>

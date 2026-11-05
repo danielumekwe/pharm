@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db/database";
 import { outlets } from "@/lib/data";
-import { DomainError, outletName } from "@/lib/erp/services";
+import { DomainError, outletName, saleTenders } from "@/lib/erp/services";
 import { getStore } from "@/lib/erp/store";
 import type { SaleInvoice, SaleReturn } from "@/lib/erp/types";
 import type { Actor } from "@/lib/erp/types";
@@ -72,10 +72,12 @@ function aggregateSales(rows: SaleInvoice[]): SalesRow {
     total.discounts += amount(sale.discount);
     total.vat += amount(sale.vat);
     total.invoiced += amount(sale.total);
-    if (sale.paymentMethod === "Cash") total.cash += amount(sale.total);
-    else if (sale.paymentMethod === "Transfer") total.transfer += amount(sale.total);
-    else if (sale.paymentMethod === "Card") total.pos += amount(sale.total);
-    else if (sale.paymentMethod === "Credit" || sale.paymentMethod === "HMO") total.onAccount += amount(sale.total);
+    for (const tender of saleTenders(sale)) {
+      if (tender.method === "Cash") total.cash += amount(tender.amount);
+      else if (tender.method === "Transfer") total.transfer += amount(tender.amount);
+      else if (tender.method === "Card") total.pos += amount(tender.amount);
+      else total.onAccount += amount(tender.amount);
+    }
     return total;
   }, { ...EMPTY_SALES });
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BrandMark } from "@/components/brand-logo";
+import { BrandWordmark } from "@/components/branding";
 import { getOutletById } from "@/lib/data";
 import { findInvite } from "@/lib/erp/users";
 import { getStore } from "@/lib/erp/store";
@@ -7,7 +7,7 @@ import { ROLE_LABELS } from "@/lib/rbac";
 
 import { AcceptInviteForm } from "./accept-invite-form";
 
-export const metadata = { title: "Activate account · Pharmacy ERP" };
+export const metadata = { title: "Activate account" };
 
 export default async function InvitePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
@@ -18,8 +18,7 @@ export default async function InvitePage({ searchParams }: { searchParams: Promi
     <main className="flex min-h-screen items-center justify-center bg-[#f2f6f3] px-4 py-10 text-slate-900">
       <div className="w-full max-w-md rounded-[28px] bg-white px-8 py-9 shadow-[0_30px_80px_-30px_rgba(15,81,50,0.35)]">
         <div className="flex flex-col items-center text-center">
-          <BrandMark id="invite" className="h-16 w-16" />
-          <p className="mt-2 text-2xl font-bold text-green-900">Pharmacy ERP</p>
+          <BrandWordmark className="h-16 w-auto" />
         </div>
         {user ? (
           <>

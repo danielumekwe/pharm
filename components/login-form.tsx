@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { Check, ChevronDown, Eye, EyeOff, Loader2, LockKeyhole, LogIn, Mail, QrCode, Store } from "lucide-react";
+import { Check, ChevronDown, Eye, EyeOff, Loader2, LockKeyhole, LogIn, Mail, QrCode, Smartphone, Store } from "lucide-react";
 
-import { BrandMark } from "@/components/brand-logo";
+import { BrandWordmark } from "@/components/branding";
 import { PharmacyIllustration } from "@/components/pharmacy-illustration";
 
 const HEAD_OFFICE = "HQ";
@@ -130,8 +130,7 @@ function LoginFormFields({ saved, locations }: { saved: Remembered | null; locat
   return (
     <div className="w-full max-w-[560px] rounded-[28px] bg-white px-6 py-8 shadow-[0_30px_80px_-30px_rgba(15,81,50,0.35)] sm:px-10">
       <div className="flex flex-col items-center text-center">
-        <BrandMark id="card" className="h-20 w-20" />
-        <p className="mt-2 text-3xl font-bold tracking-tight text-green-900">Pharmacy ERP</p>
+        <BrandWordmark className="h-20 w-auto" />
         <h2 className="mt-4 text-2xl font-bold text-slate-900 sm:text-[28px]">Sign in to your account</h2>
         <p className="mt-1.5 text-slate-600">Enter your credentials to access the system</p>
       </div>
@@ -265,6 +264,14 @@ function LoginFormFields({ saved, locations }: { saved: Remembered | null; locat
           {mode === "email" ? "Use Staff ID / Barcode" : "Use Email Address"}
         </button>
       </form>
+
+      <a
+        href="/downloads/PharmaERP.apk"
+        download
+        className="web-only mt-4 flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-blue-400 hover:text-blue-700"
+      >
+        <Smartphone className="h-4 w-4" /> Get the Android app
+      </a>
 
       <details className="mt-4 text-sm text-slate-600">
         <summary className="cursor-pointer select-none text-center text-xs font-medium uppercase tracking-[0.18em] text-slate-500 hover:text-green-700">

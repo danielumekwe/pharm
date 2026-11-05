@@ -1,0 +1,28 @@
+{
+  "appId": "com.pharmaerp.app",
+  "appName": "PharmaERP",
+  "webDir": "www",
+  "server": {
+    "url": "https://pharmacy-erp-demo.vercel.app/dashboard",
+    "errorPath": "offline.html",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#ffffff"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#ffffff",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#ffffff",
+      "overlaysWebView": false
+    }
+  }
+}

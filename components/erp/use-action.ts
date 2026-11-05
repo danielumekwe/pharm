@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useState, useTransition } from "react";
 
-/** Sends a JSON mutation to an API route, surfaces the error message, and refreshes server data. */
+/** Sends a JSON (or multipart FormData) mutation to an API route, surfaces the error message, and refreshes server data. */
 export function useAction() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -15,10 +15,12 @@ export function useAction() {
       setBusy(true);
       setError(null);
       try {
+        // FormData (file uploads) is sent as multipart; anything else as JSON.
+        const multipart = body instanceof FormData;
         const response = await fetch(url, {
           method,
-          headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-          body: body === undefined ? undefined : JSON.stringify(body),
+          headers: body === undefined || multipart ? undefined : { "Content-Type": "application/json" },
+          body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
         });
         const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
         if (!response.ok) {

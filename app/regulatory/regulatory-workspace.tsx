@@ -213,7 +213,7 @@ function UploadModal({ categories, relatedOptions, onClose }: { categories: stri
           <Field label="Valid until (optional)"><TextInput type="date" value={form.expiresOn} onChange={(event) => setForm((current) => ({ ...current, expiresOn: event.target.value }))} /></Field>
         </div>
         <Field label="Relates to"><SelectInput value={form.relatedTo} onChange={(event) => setForm((current) => ({ ...current, relatedTo: event.target.value }))} options={[{ value: "", label: "General / not linked" }, ...relatedOptions]} /></Field>
-        <Field label="File"><input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg" className="text-sm text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-emerald-950" /></Field>
+        <Field label="File"><input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg" className="text-sm text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[#fff]" /></Field>
         <FormError message={error} />
         <div className="flex justify-end gap-2">
           <ActionButton tone="secondary" onClick={onClose}>Cancel</ActionButton>

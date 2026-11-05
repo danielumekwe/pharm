@@ -37,7 +37,7 @@ function toDb(value: unknown, kind: FieldSpec[1]) {
   if (kind === "json") return JSON.stringify(value);
   if (kind === "bool") return Boolean(value);
   if (kind === "int") return Math.round(Number(value));
-  if (kind === "real") return Number(value);
+  if (kind === "real" || kind === "money") return Number(value);
   return String(value);
 }
 
@@ -45,7 +45,7 @@ function fromDb(value: unknown, kind: FieldSpec[1]) {
   if (value === null || value === undefined) return undefined;
   if (kind === "json") return JSON.parse(String(value));
   if (kind === "bool") return Boolean(value);
-  if (kind === "int" || kind === "real") return Number(value);
+  if (kind === "int" || kind === "real" || kind === "money") return Number(value);
   return String(value);
 }
 
@@ -252,8 +252,9 @@ class PharmDb {
     store.counters = kv.counters ?? {};
     store.jobRuns = kv.jobRuns ?? {};
     if (kv.rolePermissions) registry[MATRIX_KEY] = kv.rolePermissions;
-    const { getStore: normalizeStore } = await import("@/lib/erp/store");
-    normalizeStore();
+    const { getStore: normalizeStore, ensureLedgerBaseline } = await import("@/lib/erp/store");
+    // Databases created before the stock ledger get opening balances for existing batches (saved by this transaction).
+    ensureLedgerBaseline(normalizeStore());
   }
 
   /** Writes many rows with as few round trips as possible: one multi-row INSERT per chunk. */
@@ -396,6 +397,16 @@ class PharmDb {
     return this.transaction((client) => client.$queryRawUnsafe<T[]>(query, ...params));
   }
 
+  /** Reads one app_state value directly, without the write lock or loading the working set. */
+  async readKv<T>(key: string): Promise<T | undefined> {
+    const read = async (client: Pick<PrismaClient, "$queryRawUnsafe">) => {
+      const rows = await client.$queryRawUnsafe<{ value: string }[]>(`SELECT value FROM ${KV_TABLE} WHERE key = $1`, key);
+      return rows[0] ? (JSON.parse(rows[0].value) as T) : undefined;
+    };
+    const tx = transactions.getStore();
+    return tx ? read(tx) : this.withClient(read);
+  }
+
   stats() {
     const counts = Object.fromEntries([...this.snapshots].map(([table, rows]) => [table, rows.size]));
     return { database: "PostgreSQL", counts, lastFlush: this.lastFlush };
@@ -500,6 +511,17 @@ export async function runSql<T = Row>(sql: string, params: unknown[] = []): Prom
     if (!tx) throw new Error("Database transaction unavailable.");
     return tx.$queryRawUnsafe<T[]>(sql, ...params);
   });
+}
+
+/** Lightweight read of one stored value (e.g. settings) for public pages; no request transaction needed. */
+export async function readStateValue<T>(key: string): Promise<T | undefined> {
+  await initDatabase();
+  return getDb()?.readKv<T>(key);
+}
+
+/** True while running inside a request's database transaction, where the in-memory store is current. */
+export function inDatabaseTransaction() {
+  return Boolean(transactions.getStore());
 }
 
 export function getDb() {

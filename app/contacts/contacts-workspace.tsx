@@ -22,10 +22,13 @@ export function ContactsWorkspace({
   outlets,
   scope,
   canManage,
+  canAddSupplier,
   canVerify,
 }: {
   customers: Customer[];
-  suppliers: Supplier[];
+  /** Null when the viewer works with customers only (sales roles). */
+  suppliers: Supplier[] | null;
+  canAddSupplier: boolean;
   outlets: { id: string; name: string }[];
   scope?: string;
   canManage: boolean;
@@ -34,7 +37,7 @@ export function ContactsWorkspace({
   const [adding, setAdding] = useState<"customer" | "supplier" | null>(null);
   const { run, error } = useAction();
   const receivable = customers.reduce((sum, row) => sum + row.balance, 0);
-  const payable = suppliers.reduce((sum, row) => sum + row.balance, 0);
+  const payable = (suppliers ?? []).reduce((sum, row) => sum + row.balance, 0);
   const overLimit = customers.filter((row) => row.creditLimit > 0 && row.balance / row.creditLimit >= 0.8);
 
   const customerColumns: Column<Customer>[] = [
@@ -86,13 +89,13 @@ export function ContactsWorkspace({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Customers & suppliers"
+        title={suppliers ? "Customers & suppliers" : "Customers"}
         description="Credit-controlled customer accounts (retail, HMO, corporate, clinic) and PCN-verified supplier master data."
         scope={scope}
         actions={
           canManage ? (
             <>
-              <ActionButton tone="secondary" onClick={() => setAdding("supplier")}><Building className="h-4 w-4" /> Add supplier</ActionButton>
+              {suppliers && canAddSupplier ? <ActionButton tone="secondary" onClick={() => setAdding("supplier")}><Building className="h-4 w-4" /> Add supplier</ActionButton> : null}
               <ActionButton onClick={() => setAdding("customer")}><UserPlus className="h-4 w-4" /> Add customer</ActionButton>
             </>
           ) : null
@@ -103,8 +106,12 @@ export function ContactsWorkspace({
         stats={[
           { label: "Customer accounts", value: String(customers.length), note: `${customers.filter((row) => row.type === "HMO").length} HMOs · ${customers.filter((row) => row.type === "Corporate" || row.type === "Clinic").length} institutional`, icon: Users, tone: "sky" },
           { label: "Receivables", value: compactMoney(receivable), note: `${overLimit.length} account(s) above 80% of limit`, icon: CircleDollarSign, tone: "amber" },
-          { label: "Suppliers", value: String(suppliers.length), note: `${suppliers.filter((row) => row.status !== "Approved").length} awaiting verification / suspended`, icon: ShieldCheck, tone: "emerald" },
-          { label: "Payables", value: compactMoney(payable), note: "Owed to suppliers", icon: Building, tone: "rose" },
+          ...(suppliers
+            ? [
+                { label: "Suppliers", value: String(suppliers.length), note: `${suppliers.filter((row) => row.status !== "Approved").length} awaiting verification / suspended`, icon: ShieldCheck, tone: "emerald" as const },
+                { label: "Payables", value: compactMoney(payable), note: "Owed to suppliers", icon: Building, tone: "rose" as const },
+              ]
+            : []),
         ]}
       />
 
@@ -131,7 +138,9 @@ export function ContactsWorkspace({
                 />
               ),
             },
-            {
+            ...(suppliers
+              ? [
+{
               key: "suppliers",
               label: "Suppliers",
               count: suppliers.length,
@@ -146,6 +155,8 @@ export function ContactsWorkspace({
                 />
               ),
             },
+                ]
+              : []),
           ]}
         />
       </Panel>

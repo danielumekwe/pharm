@@ -1,7 +1,7 @@
 // In-memory ERP store used when no database is configured. Kept on globalThis so data
 // survives hot reloads and is shared by pages and route handlers in the same process.
 
-import { products } from "@/lib/data";
+import { batches, products } from "@/lib/data";
 import { DATA_VERSION } from "@/lib/data-version";
 import type {
   ImpersonationSession,
@@ -11,8 +11,13 @@ import type {
   InventoryAlert,
   NotificationDelivery,
   AuditEvent,
+  HeldSale,
+  PriceChange,
+  StockTransfer,
+  ProductCatalogLists,
   ProductRegistration,
   RegulatoryDocument,
+  StockLedgerEntry,
   SystemSettings,
   Customer,
   Expense,
@@ -40,6 +45,11 @@ export type ErpStore = {
   devices: DeviceRegistration[];
   saleReturns: SaleReturn[];
   impersonations: ImpersonationSession[];
+  /** Append-only stock transactions: the single source of truth for every stock balance. */
+  stockLedger: StockLedgerEntry[];
+  priceHistory: PriceChange[];
+  heldSales: HeldSale[];
+  transfers: StockTransfer[];
   /** Last run markers for scheduled jobs (daily: YYYY-MM-DD, monthly: YYYY-MM). */
   jobRuns: { daily?: string; monthly?: string };
   counters: Record<string, number>;
@@ -47,6 +57,7 @@ export type ErpStore = {
 
 export const DEFAULT_SETTINGS: SystemSettings = {
   businessName: "Pharmacy ERP",
+  logoFile: null,
   vatRate: 7.5,
   minShelfLifeDays: 180,
   nearExpiryDays: 150,
@@ -59,7 +70,19 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   inviteValidityHours: 72,
   supplierPaymentApprovalThreshold: 1_000_000,
   passwordMinLength: 8,
+  catalog: defaultCatalog(),
+  pos: { cashierMaxDiscountPct: 5, approverMaxDiscountPct: 25 },
+  salesTargets: { "outlet-1": 350_000, "outlet-2": 300_000, "outlet-3": 250_000 },
 };
+
+export function defaultCatalog(): ProductCatalogLists {
+  return {
+    categories: ["Analgesics", "Antibiotics", "Antimalarials", "Antihypertensives", "Antidiabetics", "Vitamins & supplements", "Cough & cold", "Dermatologicals", "Medical supplies", "Devices", "Personal care", "Others", "Tablets", "Capsules", "Syrups", "Injections", "Creams", "Supplements"],
+    dosageForms: ["Tablet", "Capsule", "Syrup", "Suspension", "Injection", "Infusion", "Cream", "Ointment", "Gel", "Drops", "Inhaler", "Suppository", "Powder", "Sachet", "Supplement", "Soap", "Device", "Other"],
+    productTypes: ["Prescription medicine (POM)", "Over-the-counter (OTC)", "Controlled drug", "Supplement", "Cosmetic / personal care", "Medical device", "Consumable"],
+    packagingTypes: ["Carton", "Box", "Pack", "Packet", "Strip", "Blister", "Sachet", "Bottle", "Vial", "Ampoule", "Tube", "Roll", "Tablet", "Capsule", "Piece"],
+  };
+}
 
 function seedRegistrations(): ProductRegistration[] {
   // One registration per product (registrations are national, not per outlet).
@@ -198,7 +221,9 @@ function seedSales(customers: Customer[]): { sales: SaleInvoice[]; payments: Pay
       const settled = method === "Cash" || method === "Card" || method === "Transfer" || day > 20;
       const amountPaid = settled ? total : 0;
       const voided = random() > 0.97;
-      const date = daysAgo(day, 8 + Math.floor(random() * 11));
+      // Never seed sales later than "now" (early in the day, today's trading hours have not happened yet).
+      const seeded = daysAgo(day, 8 + Math.floor(random() * 11));
+      const date = seeded > new Date().toISOString() ? new Date(Date.now() - 60_000 * (counter % 50 + 1)).toISOString() : seeded;
       const number = `INV-${String(counter).padStart(5, "0")}`;
 
       sales.push({
@@ -373,6 +398,10 @@ function createStore(): ErpStore {
     devices: [],
     saleReturns: [],
     impersonations: [],
+    stockLedger: [],
+    priceHistory: [],
+    heldSales: [],
+    transfers: [],
     jobRuns: {},
     counters: {
       sale: sales.length + 1,
@@ -395,6 +424,7 @@ export function getStore(): ErpStore {
   if (!store) {
     store = createStore();
     globalStore[STORE_KEY] = store;
+    ensureLedgerBaseline(store);
   }
   // Backfill sections added after the store was created (defensive for long-running dev servers).
   store.settings ??= { ...DEFAULT_SETTINGS };
@@ -406,6 +436,13 @@ export function getStore(): ErpStore {
   store.devices ??= [];
   store.saleReturns ??= [];
   store.impersonations ??= [];
+  store.stockLedger ??= [];
+  store.priceHistory ??= [];
+  store.settings.catalog ??= defaultCatalog();
+  store.heldSales ??= [];
+  store.transfers ??= [];
+  store.settings.pos ??= { ...DEFAULT_SETTINGS.pos };
+  store.settings.salesTargets ??= { ...DEFAULT_SETTINGS.salesTargets };
   store.settings.impersonation ??= { ...DEFAULT_SETTINGS.impersonation };
   store.settings.lowStock ??= { ...DEFAULT_SETTINGS.lowStock, outletMins: {}, productMins: {} };
   store.settings.alertEmail ??= { ...DEFAULT_SETTINGS.alertEmail, recipients: [] };
@@ -421,4 +458,60 @@ export function nextNumber(key: string) {
   const value = store.counters[key] ?? 1;
   store.counters[key] = value + 1;
   return value;
+}
+
+/**
+ * Stock that predates the ledger: every batch without ledger rows gets one OPENING row for its current
+ * quantity, and item totals are re-derived from their batches. Idempotent (ids are derived from the batch),
+ * so it is safe to run after every database load. Returns the number of rows created.
+ */
+export function ensureLedgerBaseline(store: ErpStore = getStore()) {
+  store.stockLedger ??= [];
+  const covered = new Set(store.stockLedger.map((entry) => entry.batchId));
+  const missing = batches.filter((batch) => !covered.has(batch.id) && batch.availableQuantity > 0);
+  if (missing.length === 0) return 0;
+  const touched = new Set<string>();
+  const balances = new Map<string, number>();
+  const at = new Date().toISOString();
+  // Oldest receipts first so running balances read naturally.
+  for (const batch of [...missing].sort((a, b) => a.receivingDate.localeCompare(b.receivingDate))) {
+    const key = `${batch.productId}|${batch.assignedOutletId}`;
+    const previous = balances.get(key) ?? store.stockLedger.filter((entry) => entry.productId === batch.productId && entry.outletId === batch.assignedOutletId).reduce((sum, entry) => sum + entry.baseQuantity, 0);
+    const product = products.find((row) => row.id === batch.productId);
+    const unit = product?.baseUnit ?? product?.uom ?? "Unit";
+    store.stockLedger.unshift({
+      id: `led-open-${batch.id}`,
+      reference: `OPEN-${batch.batchNumber}`,
+      at,
+      type: "OPENING",
+      productId: batch.productId,
+      productName: batch.productName,
+      outletId: batch.assignedOutletId,
+      batchId: batch.id,
+      batchNumber: batch.batchNumber,
+      quantity: batch.availableQuantity,
+      unit,
+      unitsPerUnit: 1,
+      baseQuantity: batch.availableQuantity,
+      previousBalance: previous,
+      newBalance: previous + batch.availableQuantity,
+      batchBalance: batch.availableQuantity,
+      unitCost: batch.purchasePrice,
+      userId: "system",
+      userName: "System (opening balance)",
+      remarks: "Opening balance carried forward when the stock ledger was introduced",
+    });
+    balances.set(key, previous + batch.availableQuantity);
+    touched.add(batch.productId);
+  }
+  for (const product of products) {
+    if (!touched.has(product.id)) continue;
+    const total = batches.filter((batch) => batch.productId === product.id).reduce((sum, batch) => sum + batch.availableQuantity, 0);
+    if (total !== product.stock) {
+      console.warn(`[ledger] ${product.name} @ ${product.outletId}: item total ${product.stock} re-derived from batches as ${total}`);
+      product.stock = total;
+    }
+    if (product.status !== "RESTRICTED") product.status = product.stock <= product.minStock ? "LOW_STOCK" : "ACTIVE";
+  }
+  return missing.length;
 }
