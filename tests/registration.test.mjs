@@ -101,7 +101,10 @@ describe("Registration", () => {
     assert.ok(state.rolePermissions.SUPER_ADMIN.length > 30, "the pharmacy has its own role matrix");
     const [audit] = await server.query("SELECT action FROM audit_events WHERE tenant_id = ?", tenantId);
     assert.equal(audit.action, "tenant.registered");
-    assert.equal(server.outbox().filter((message) => message.to === OWNER).length, 1, "verification email sent");
+    const sent = server.outbox().filter((message) => message.to === OWNER);
+    assert.equal(sent.length, 2, "verification and trial-started emails");
+    assert.ok(sent.some((message) => message.text.includes("/verify-email?token=")), "verification email sent");
+    assert.ok(sent.some((message) => /trial/i.test(message.subject)), "trial-started email sent");
   });
 
   test("a retried submission returns the same pharmacy instead of creating another", async () => {

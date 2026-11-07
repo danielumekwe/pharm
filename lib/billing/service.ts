@@ -14,6 +14,7 @@ import { PaymentProviderError, toMinorUnits, type VerifiedPayment } from "@/lib/
 import { DomainError, recordAudit } from "@/lib/erp/services";
 import type { Actor } from "@/lib/erp/types";
 import { recordPlatformAudit } from "@/lib/platform/audit";
+import { notifyPharmacyOwners } from "@/lib/saas/account-email";
 import { runInTenant } from "@/lib/saas/tenant";
 
 export type BillingCycle = "MONTHLY" | "ANNUAL";
@@ -233,6 +234,13 @@ export async function settlePayment(reference: string, source: "callback" | "web
       recordAudit({ id: "system:billing", name: "Billing", role: "SUPER_ADMIN" }, { action: `billing.payment-${result.outcome}`, entity: "Payment", entityId: reference, summary, severity });
     })).catch((error) => console.error("[billing] tenant audit failed", error));
     await recordPlatformAudit({ id: null, name: "Billing", type: "system" }, { action: `billing.payment-${result.outcome}`, targetType: "Payment", targetId: reference, tenantId: result.tenantId, summary, severity });
+    // Tell the pharmacy's Super Admins (not for rejected payments: those are for Web365 to check).
+    const amount = `${known.currency} ${Number(known.amount).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+    const link = `${(process.env.APP_URL || process.env.NEXTAUTH_URL || "").replace(/\/$/, "")}/subscription`;
+    const notice = result.outcome === "activated"
+      ? notifyPharmacyOwners(result.tenantId, "payment_confirmation", { plan: result.planName, amount, period_end: new Date(result.periodEnd!).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }), invoice_number: result.invoiceNumber, link }, "billing")
+      : result.outcome === "failed" ? notifyPharmacyOwners(result.tenantId, "payment_failure", { amount, reason: result.message.replace(/^The payment (failed: )?/, "").replace(/\.$/, ""), link }, "billing") : null;
+    await notice?.catch((error) => console.error("[billing] notice email failed", error instanceof Error ? error.message : "error"));
   }
   return { outcome: result.outcome, tenantId: result.tenantId, reference: result.reference, message: result.message };
 }

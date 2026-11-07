@@ -58,14 +58,21 @@ export async function platformDashboard() {
   const gateway = await paystackConfig();
   const paystackChecks = await lastChecks("paystack");
   const emailChecks = await lastChecks("email");
+  const emailReady = await emailConfigured();
+  const [mail] = await platformQuery<Array<{ failed: Count; retrying: Count; sent: Count }>>((query) =>
+    query(`SELECT count(*) FILTER (WHERE status = 'FAILED') AS failed, count(*) FILTER (WHERE status = 'RETRYING') AS retrying, count(*) FILTER (WHERE status = 'SENT') AS sent
+           FROM email_deliveries WHERE created_at > now() - interval '1 day'`),
+  );
   const lastJob = data.jobs.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())[0];
 
   const health: Health[] = [
     { name: "Database", status: latency < 2000 ? "ok" : "warning", detail: `Connected (PostgreSQL ${data.database.version}); ${(n(data.database.size) / 1024 / 1024).toFixed(1)} MB; dashboard queries took ${latency} ms`, checkedAt: new Date().toISOString() },
     {
       name: "Email service",
-      status: !emailConfigured() ? "warning" : emailChecks.last ? (emailChecks.last.ok ? "ok" : "error") : "unknown",
-      detail: !emailConfigured() ? "Not configured: account and alert emails are skipped." : emailChecks.last ? emailChecks.last.detail : "Configured, but no connection test has been run yet.",
+      status: !emailReady ? "warning" : emailChecks.last ? (emailChecks.last.ok ? (n(mail.failed) > 0 ? "warning" : "ok") : "error") : "unknown",
+      detail: !emailReady
+        ? "Not configured or turned off: account and alert emails are skipped."
+        : `${emailChecks.last ? emailChecks.last.detail : "Configured, but no connection test has been run yet."} Last 24 h: ${n(mail.sent)} sent, ${n(mail.failed)} failed, ${n(mail.retrying)} waiting to retry.`,
       checkedAt: emailChecks.last?.at ?? null,
     },
     {

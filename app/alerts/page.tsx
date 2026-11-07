@@ -84,6 +84,7 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
 
     const canDeliveries = can(actor, "reports.consolidated");
 
+    const emailReady = await emailConfigured();
     return (
       <DashboardShell>
         <AlertsCentre
@@ -100,7 +101,7 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
           scope={outletFilter ? outletName(outletFilter) : "All outlets"}
           reports={Object.entries(INVENTORY_REPORTS).map(([key, value]) => ({ key, title: value.title, description: value.description }))}
           deliveries={canDeliveries ? store.deliveries.slice(0, 300) : []}
-          channels={{ email: emailConfigured(), push: pushConfigured(), devices: store.devices.length, lastDaily: store.jobRuns.daily ?? null, lastMonthly: store.jobRuns.monthly ?? null, summaryHour: store.settings.dailySummaryHour }}
+          channels={{ email: emailReady, push: pushConfigured(), devices: store.devices.length, lastDaily: store.jobRuns.daily ?? null, lastMonthly: store.jobRuns.monthly ?? null, summaryHour: store.settings.dailySummaryHour }}
           permissions={{
             manage: can(actor, "alerts.manage"),
             expiry: showExpiry,

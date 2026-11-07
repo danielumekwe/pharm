@@ -187,3 +187,22 @@ Going live also needs:
 - [ ] `SETTINGS_ENCRYPTION_KEY`: at least 32 random characters, as a server secret (for example `openssl rand -base64 48`). Keep a copy in a password manager: without it, saved secrets cannot be read and must be entered again. Never commit it.
 - [ ] Payment keys: enter them on **Control Centre → Payment gateway** (stored encrypted, never shown again). Start in test mode, run **Test connection**, then switch to live. The environment variable `PAYSTACK_SECRET_KEY` remains a fallback, used only when the settings are not enabled.
 - [ ] The live Paystack key shared in chat on 8 November 2026 must be rolled in the Paystack dashboard before use.
+
+## Phase 7B (email)
+
+Migration `20261113090000_email` (rollback: `prisma/rollbacks/20261113090000_email/down.sql`, run before the 7A rollback; it drops the delivery log and edited templates):
+
+- `email_deliveries`: one row per email sent, failed, waiting to retry or not sent. The app cannot delete it. A message body is kept only while a platform email waits to be retried, and only encrypted (it can contain a one-time link). Pharmacy alert emails are logged without their subject.
+- `email_templates`: templates edited on **Control Centre → Email → Email templates**. Built-in defaults stay in code until a template is saved.
+
+Re-run `prisma/sql/app-role.sql` afterwards. Rehearsed on 8 November 2026 on the live-data copy: counts and totals matched, there was no drift, the rollback was lossless (0 tables differ) and re-applying worked.
+
+Failed platform emails (account, billing, notices) are retried after 5 minutes, 30 minutes, 2 hours and 12 hours, then marked failed. The retry queue runs with the existing scheduled jobs: the Vercel cron (`GET /api/alerts/jobs`), the Worker cron, and the in-process scheduler.
+
+Going live also needs:
+
+- [ ] ZeptoMail: verify `pharmerp.name.ng` as a sending domain (add the SPF and DKIM DNS records ZeptoMail shows, and wait until both show as verified). Without this, emails from `support@pharmerp.name.ng` are refused or land in spam.
+- [ ] Create a Mail Agent and generate a **new** Send Mail token. The token shared in chat on 8 November 2026 must be deleted in ZeptoMail and not used.
+- [ ] Enter it on **Control Centre → Email**: ZeptoMail API, the region of the ZeptoMail account (`zeptomail.com` unless the account is on another data centre), sender `support@pharmerp.name.ng`. Save, run **Test connection** (checks the token, sends nothing), then **Send test email** to a real inbox.
+- [ ] Optional: a "new pharmacy" notification address, which gets an email when a pharmacy registers.
+- [ ] Once Control Centre email settings are saved, they replace the `SMTP_*` / `ALERT_EMAIL_FROM` environment variables. Unticking **Send email with these settings** turns all email off (each email is logged as not sent).

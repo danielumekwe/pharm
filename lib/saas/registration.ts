@@ -18,7 +18,7 @@ import { getStore } from "@/lib/erp/store";
 import { nextStaffId } from "@/lib/erp/users";
 import { hashPassword } from "@/lib/password";
 import { DEFAULT_ROLE_PERMISSIONS, setRoleMatrix } from "@/lib/rbac";
-import { sendVerificationEmail } from "@/lib/saas/account-email";
+import { sendRegistrationEmails, sendVerificationEmail } from "@/lib/saas/account-email";
 import { emailTaken } from "@/lib/saas/identity";
 import { runInTenant } from "@/lib/saas/tenant";
 
@@ -151,8 +151,9 @@ export async function registerPharmacy(input: RegistrationInput): Promise<Regist
   let verificationEmail: RegistrationResult["verificationEmail"] = "FAILED";
   try {
     verificationEmail = (await sendVerificationEmail(owner, input.businessName)).status;
+    await sendRegistrationEmails({ tenantId, owner, pharmacy: input.businessName, plan: plan.name, trialEnd: new Date(Date.now() + plan.trialDays * 86_400_000), state: input.state, country: COUNTRIES[input.country] });
   } catch (error) {
-    console.error("[registration] verification email failed", error);
+    console.error("[registration] registration emails failed", error instanceof Error ? error.message : "error");
   }
   return { tenantId, ownerEmail: input.ownerEmail, created: true, verificationEmail };
 }

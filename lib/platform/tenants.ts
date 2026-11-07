@@ -6,7 +6,7 @@ import { platformQuery, type PlatformQuery } from "@/lib/db/database";
 import { DomainError } from "@/lib/erp/services";
 import { platformActorRef, recordPlatformAudit } from "@/lib/platform/audit";
 import type { PlatformActor } from "@/lib/platform/session";
-import { sendAccountSetupEmail } from "@/lib/saas/account-email";
+import { appUrl, notifyPharmacyOwners, sendAccountSetupEmail } from "@/lib/saas/account-email";
 import { registerPharmacy, registrationFields, registrationSchema, validState } from "@/lib/saas/registration";
 
 export type TenantSummary = {
@@ -113,6 +113,10 @@ export async function setTenantStatus(actor: PlatformActor, tenantId: string, st
     targetType: "Tenant", targetId: tenantId, tenantId, severity: status === "SUSPENDED" ? "warning" : "info",
     summary: status === "SUSPENDED" ? `Suspended ${row.name}: ${reason.trim()}` : `Reactivated ${row.name}`,
   });
+  const notice = status === "SUSPENDED"
+    ? notifyPharmacyOwners(tenantId, "account_suspended", { reason: reason.trim() }, "platform")
+    : notifyPharmacyOwners(tenantId, "account_reactivated", { link: `${appUrl()}/` }, "platform");
+  await notice.catch((error) => console.error("[platform] status email failed", error instanceof Error ? error.message : "error"));
   return { ok: true };
 }
 

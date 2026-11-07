@@ -44,3 +44,11 @@ BEGIN
         REVOKE UPDATE, DELETE, TRUNCATE ON "platform_settings_history" FROM pharm_app;
     END IF;
 END $$;
+
+-- The email delivery log keeps its history (status updates for retries only).
+DO $$
+BEGIN
+    IF to_regclass('email_deliveries') IS NOT NULL THEN
+        REVOKE DELETE, TRUNCATE ON "email_deliveries" FROM pharm_app;
+    END IF;
+END $$;

@@ -43,6 +43,34 @@ export const SETTINGS = {
     defaults: { enabled: false, mode: "test", testPublicKey: "", livePublicKey: "", currency: "NGN" },
     secrets: { testSecretKey: keyPattern("sk_test_"), liveSecretKey: keyPattern("sk_live_") },
   },
+  "email.delivery": {
+    label: "Email delivery",
+    permission: "settings.manage",
+    value: z.object({
+      /** Off: no email is sent at all (a kill switch), whatever the server environment says. */
+      enabled: z.boolean(),
+      provider: z.enum(["zeptomail_api", "zeptomail_smtp", "smtp"]),
+      zeptoRegion: z.enum(["com", "eu", "in", "com.au", "jp", "ca", "sa"]),
+      host: z.string().trim().max(200).regex(/^[a-z0-9.-]*$/i, "Enter a host name such as smtp.example.com"),
+      port: z.number().int().min(1).max(65535),
+      encryption: z.enum(["starttls", "ssl", "none"]),
+      username: z.string().trim().max(200),
+      senderName: z.string().trim().min(1).max(100),
+      senderEmail: z.union([z.string().trim().toLowerCase().email(), z.literal("")]),
+      replyTo: z.union([z.string().trim().toLowerCase().email(), z.literal("")]),
+      /** Web365 address told about new pharmacy registrations (optional). */
+      notifyEmail: z.union([z.string().trim().toLowerCase().email(), z.literal("")]),
+    }).superRefine((value, context) => {
+      if (value.enabled && !value.senderEmail) context.addIssue({ code: "custom", path: ["senderEmail"], message: "Enter the sender address before turning delivery on" });
+      if (value.enabled && value.provider === "smtp" && !value.host) context.addIssue({ code: "custom", path: ["host"], message: "Enter the SMTP host" });
+    }),
+    defaults: { enabled: false, provider: "zeptomail_api", zeptoRegion: "com", host: "", port: 587, encryption: "starttls", username: "", senderName: "Pharmacy ERP", senderEmail: "", replyTo: "", notifyEmail: "" },
+    secrets: {
+      /** ZeptoMail "Send Mail" token, with or without the "Zoho-enczapikey" prefix. */
+      apiToken: z.string().trim().regex(/^(Zoho-enczapikey\s+)?[A-Za-z0-9+/=]{20,}$/, "Paste the token from ZeptoMail (Mail Agents → API)"),
+      password: z.string().min(1).max(500),
+    },
+  },
 } satisfies Record<string, Definition<z.ZodTypeAny>>;
 
 export type SettingKey = keyof typeof SETTINGS;

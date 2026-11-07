@@ -6,7 +6,7 @@ import { timingSafeEqual } from "node:crypto";
 import { runDailySummary, runMonthlyReport, schedulerTick } from "@/lib/erp/alert-jobs";
 import { scanAlerts } from "@/lib/erp/alerts";
 import { guarded } from "@/lib/session";
-import { forEachTenant } from "@/lib/saas/jobs";
+import { forEachTenant, runPlatformJobs } from "@/lib/saas/jobs";
 
 const schema = z.object({ job: z.enum(["scan", "daily", "monthly"]) });
 
@@ -32,7 +32,8 @@ export async function GET(request: Request) {
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
   if (!secretMatches(bearer)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const results = await forEachTenant(() => schedulerTick(), undefined, { name: "alert-jobs", trigger: "cron" });
-  return NextResponse.json({ ok: results.every((entry) => entry.ok), pharmacies: results.length, failed: results.filter((entry) => !entry.ok).map((entry) => entry.tenantId), ranAt: new Date().toISOString() });
+  const emailQueue = await runPlatformJobs("cron").catch(() => null);
+  return NextResponse.json({ ok: results.every((entry) => entry.ok), pharmacies: results.length, failed: results.filter((entry) => !entry.ok).map((entry) => entry.tenantId), emailQueue, ranAt: new Date().toISOString() });
 }
 
 /**

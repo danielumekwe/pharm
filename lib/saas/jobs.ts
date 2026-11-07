@@ -37,3 +37,19 @@ export async function forEachTenant<T>(job: (tenantId: string) => Promise<T> | T
   ).catch(() => undefined);
   return results;
 }
+
+/** Platform-level jobs (not per pharmacy): the email retry queue. Recorded like the pharmacy jobs. */
+export async function runPlatformJobs(trigger: string, connectionString?: string) {
+  await initDatabase(connectionString);
+  const runId = `job-${randomUUID()}`;
+  await platformQuery((query) => query(`INSERT INTO platform_job_runs (id, job, trigger) VALUES ($1, 'email-queue', $2)`, [runId, trigger])).catch(() => undefined);
+  try {
+    const { processEmailQueue } = await import("@/lib/notify/email");
+    const result = await processEmailQueue();
+    await platformQuery((query) => query(`UPDATE platform_job_runs SET finished_at = now(), detail = $1 WHERE id = $2`, [`${result.due} due, ${result.sent} sent`, runId])).catch(() => undefined);
+    return result;
+  } catch (error) {
+    await platformQuery((query) => query(`UPDATE platform_job_runs SET finished_at = now(), failed = 1, detail = $1 WHERE id = $2`, [`Failed: ${error instanceof Error ? error.message : "error"}`.slice(0, 300), runId])).catch(() => undefined);
+    throw error;
+  }
+}

@@ -164,6 +164,14 @@ function memberColumn(spec: TableSpec) {
  * Scopes this transaction to one tenant for PostgreSQL Row Level Security (reset when it ends). An empty
  * scope ("") matches no tenant rows. Also switches to the restricted app role when one is configured.
  */
+// One queue per transaction connection, for work that must not interleave with other statements on it.
+const connectionQueues = new WeakMap<object, Promise<unknown>>();
+function serialised<T>(tx: object, work: () => Promise<T>): Promise<T> {
+  const next = (connectionQueues.get(tx) ?? Promise.resolve()).then(work);
+  connectionQueues.set(tx, next.catch(() => undefined));
+  return next;
+}
+
 async function setTenantScope(tx: Pick<PrismaClient, "$queryRawUnsafe" | "$executeRawUnsafe">, tenantId: string | null, { switchRole = true } = {}) {
   const role = switchRole ? appRole() : null;
   if (role) await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
@@ -280,7 +288,7 @@ class PharmDb {
           while (pending.length) await Promise.allSettled(pending.splice(0));
           return value;
         })))));
-        await internal(() => this.flush(tx, tenantId, context.readOnly));
+        await serialised(tx, () => internal(() => this.flush(tx, tenantId, context.readOnly)));
         return result;
         },
         { maxWait: 10_000, timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
@@ -623,14 +631,16 @@ class PharmDb {
     const active = options.independent ? undefined : transactions.getStore();
     if (active) {
       const own = txTenant.getStore()?.tenantId ?? null;
-      return run(async <R = Row>(sql: string, params: unknown[] = [], tenantId: string | null = null) => {
+      // Serialised with flushes on the same connection: otherwise a flush running alongside (e.g. while alert
+      // emails are being logged) could write tenant rows while the scope is switched away.
+      return run(<R = Row>(sql: string, params: unknown[] = [], tenantId: string | null = null) => serialised(active, async () => {
         await setTenantScope(active, tenantId, { switchRole: false });
         try {
           return await active.$queryRawUnsafe<R[]>(sql, ...params);
         } finally {
           await setTenantScope(active, own, { switchRole: false });
         }
-      });
+      }));
     }
     return this.withClient((client) => client.$transaction(async (tx) => {
       let first = true;
@@ -801,7 +811,12 @@ export async function flushDatabase() {
   const database = getDb();
   if (!database) return 0;
   const tx = transactions.getStore();
-  if (tx) return database.flush(tx);
+  if (tx) {
+    // Let side effects still running (alert notifications) finish first, so their records are in this flush.
+    const pending = pendingWork.getStore();
+    while (pending?.length) await Promise.allSettled(pending.splice(0));
+    return serialised(tx, () => database.flush(tx));
+  }
   return withDatabaseTransaction(async () => 0);
 }
 

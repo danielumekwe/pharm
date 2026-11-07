@@ -306,6 +306,40 @@ model IntegrationCheck {
   @@map("integration_checks")
 }`);
 
+models.push(`/// Every email the platform sends (retry queue for platform emails; bodies only encrypted, only while retryable).
+model EmailDelivery {
+  id                       String         @id
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  category                 String
+  template                 String?
+  tenantId                 String?        @map("tenant_id")
+  recipient                String
+  subject                  String
+  status                   String
+  provider                 String?
+  providerMessageId        String?        @map("provider_message_id")
+  attempts                 Int            @default(0)
+  nextAttemptAt            DateTime?      @map("next_attempt_at") @db.Timestamptz(6)
+  lastError                String?        @map("last_error")
+  sentAt                   DateTime?      @map("sent_at") @db.Timestamptz(6)
+  bodyCiphertext           String?        @map("body_ciphertext")
+
+  @@index([createdAt(sort: Desc)], map: "email_deliveries_created_at_idx")
+  @@index([status, nextAttemptAt], map: "email_deliveries_retry_idx")
+  @@map("email_deliveries")
+}`);
+
+models.push(`/// An email template edited in the Control Centre (defaults live in code).
+model EmailTemplate {
+  key                      String         @id
+  subject                  String
+  body                     String
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy                String?        @map("updated_by")
+
+  @@map("email_templates")
+}`);
+
 models.push(`/// One background job run across all pharmacies.
 model PlatformJobRun {
   id                       String         @id

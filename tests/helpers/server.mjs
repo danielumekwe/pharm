@@ -49,8 +49,8 @@ export async function startServer(extraEnv = {}) {
     ALERT_SCHEDULER: "off",
     DATABASE_APP_ROLE: "pharm_app",
     RATE_LIMIT: "off", // tests sign in many times from one address; tests/tenant-isolation.test.mjs turns it on
-    EMAIL_OUTBOX_DIR: dir,
-    SETTINGS_ENCRYPTION_KEY: "test-only-settings-encryption-key-0123456789", // JSON-transport emails are also written here, so tests can follow their links
+    EMAIL_OUTBOX_DIR: dir, // JSON-transport emails are also written here, so tests can follow their links
+    SETTINGS_ENCRYPTION_KEY: "test-only-settings-encryption-key-0123456789",
     ...extraEnv,
   };
   // TEST_RUNTIME=worker runs the same tests against the OpenNext Worker inside workerd (`wrangler dev`),
