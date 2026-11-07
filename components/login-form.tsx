@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { Check, ChevronDown, Eye, EyeOff, Loader2, LockKeyhole, LogIn, Mail, QrCode, Smartphone, Store } from "lucide-react";
+import { Building2, Check, ChevronDown, Eye, EyeOff, Loader2, LockKeyhole, LogIn, Mail, QrCode, Smartphone, Store } from "lucide-react";
 
 import { BrandWordmark } from "@/components/branding";
 import { PharmacyIllustration } from "@/components/pharmacy-illustration";
@@ -25,7 +25,9 @@ const demoAccounts = [
 const fieldShell =
   "flex h-12 items-center gap-3 rounded-xl border border-slate-300 bg-white px-4 text-slate-800 transition focus-within:border-green-600 focus-within:ring-2 focus-within:ring-green-600/15";
 
-type Remembered = { identifier: string; outletId: string; mode: "email" | "staff" };
+type Remembered = { identifier: string; outletId: string; tenantId?: string; mode: "email" | "staff" };
+type Location = { id: string; name: string };
+type Pharmacy = { tenantId: string; name: string; role: string; locations: Location[]; defaultLocationId: string | null };
 
 function readRemembered(): string {
   try {
@@ -41,9 +43,7 @@ function subscribe(onChange: () => void) {
 }
 
 /** Reads any remembered login on this device, then mounts the form with it as initial values. */
-type Location = { id: string; label: string };
-
-export function LoginForm({ outlets }: { outlets: { id: string; name: string }[] }) {
+export function LoginForm() {
   const raw = useSyncExternalStore(subscribe, readRemembered, () => "");
   let saved: Remembered | null = null;
   try {
@@ -51,19 +51,22 @@ export function LoginForm({ outlets }: { outlets: { id: string; name: string }[]
   } catch {
     saved = null;
   }
-  const locations: Location[] = [
-    { id: HEAD_OFFICE, label: "Head Office / All Outlets (Admin Only)" },
-    ...outlets.map((outlet) => ({ id: outlet.id, label: outlet.name.replace(" - ", " – ") })),
-  ];
-  return <LoginFormFields key={raw} saved={saved?.identifier ? saved : null} locations={locations} />;
+  return <LoginFormFields key={raw} saved={saved?.identifier ? saved : null} />;
 }
 
-function LoginFormFields({ saved, locations }: { saved: Remembered | null; locations: Location[] }) {
+/**
+ * Two steps: (1) email or staff ID and password; (2) the pharmacy and location, chosen from the ones this
+ * account may use. The page itself never lists pharmacies or outlets.
+ */
+function LoginFormFields({ saved }: { saved: Remembered | null }) {
   const router = useRouter();
   const [mode, setMode] = useState<"email" | "staff">(saved?.mode ?? "email");
   const [identifier, setIdentifier] = useState(saved?.identifier ?? "");
   const [password, setPassword] = useState("");
-  const [outletId, setOutletId] = useState<string | null>(saved?.outletId ?? null);
+  const [preferredOutlet, setPreferredOutlet] = useState<string | null>(saved?.outletId ?? null);
+  const [pharmacies, setPharmacies] = useState<Pharmacy[] | null>(null);
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [outletId, setOutletId] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(Boolean(saved));
   const [menuOpen, setMenuOpen] = useState(false);
@@ -82,40 +85,69 @@ function LoginFormFields({ saved, locations }: { saved: Remembered | null; locat
     return () => window.removeEventListener("mousedown", close);
   }, [menuOpen]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const pharmacy = pharmacies?.find((entry) => entry.tenantId === tenantId) ?? null;
+
+  function choosePharmacy(entry: Pharmacy) {
+    setTenantId(entry.tenantId);
+    const preferred = entry.locations.find((location) => location.id === preferredOutlet);
+    setOutletId(preferred?.id ?? entry.defaultLocationId ?? entry.locations[0]?.id ?? null);
     setError("");
+  }
 
-    if (!outletId) {
-      setError("Select the outlet or location you are signing in to.");
-      setMenuOpen(true);
-      return;
-    }
-
+  async function signInTo(chosenTenant: string, chosenOutlet: string) {
     setIsSubmitting(true);
-    const result = await signIn("credentials", { identifier, password, outletId, redirect: false });
+    const result = await signIn("credentials", { identifier, password, tenantId: chosenTenant, outletId: chosenOutlet, redirect: false });
     setIsSubmitting(false);
-
     if (result?.error) {
-      setError(
-        result.error === "CredentialsSignin"
-          ? mode === "staff"
-            ? "Staff ID or password is incorrect, or the account is suspended."
-            : "Email or password is incorrect, or the account is suspended."
-          : result.error,
-      );
+      setError(result.error === "CredentialsSignin" ? (mode === "staff" ? "Staff ID or password is incorrect." : "Email or password is incorrect.") : result.error);
       return;
     }
-
     try {
-      if (remember) window.localStorage.setItem(REMEMBER_KEY, JSON.stringify({ identifier, outletId, mode }));
+      if (remember) window.localStorage.setItem(REMEMBER_KEY, JSON.stringify({ identifier, outletId: chosenOutlet, tenantId: chosenTenant, mode }));
       else window.localStorage.removeItem(REMEMBER_KEY);
     } catch {
       // ignore storage failures
     }
-
     router.push("/dashboard");
     router.refresh();
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+
+    if (pharmacies) {
+      if (!tenantId) return setError("Select the pharmacy you are signing in to.");
+      if (!outletId) {
+        setMenuOpen(true);
+        return setError("Select the outlet or location you are signing in to.");
+      }
+      return signInTo(tenantId, outletId);
+    }
+
+    // Step 1: check the password and fetch the pharmacies and locations this account may use.
+    setIsSubmitting(true);
+    const response = await fetch("/api/auth/pharmacies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, password }) });
+    const body = (await response.json().catch(() => ({}))) as { pharmacies?: Pharmacy[]; error?: string };
+    setIsSubmitting(false);
+    if (!response.ok || !body.pharmacies?.length) {
+      setError(body.error ?? "Sign-in is unavailable right now.");
+      return;
+    }
+    const list = body.pharmacies;
+    const only = list.length === 1 ? list[0] : null;
+    const rememberedPharmacy = list.find((entry) => entry.tenantId === saved?.tenantId) ?? only;
+    // One pharmacy with one location: nothing to choose.
+    if (only && only.locations.length === 1) return signInTo(only.tenantId, only.locations[0].id);
+    setPharmacies(list);
+    if (rememberedPharmacy) choosePharmacy(rememberedPharmacy);
+  }
+
+  function startOver() {
+    setPharmacies(null);
+    setTenantId(null);
+    setOutletId(null);
+    setError("");
   }
 
   function switchMode() {
@@ -125,7 +157,7 @@ function LoginFormFields({ saved, locations }: { saved: Remembered | null; locat
     window.setTimeout(() => identifierRef.current?.focus(), 0);
   }
 
-  const selected = locations.find((location) => location.id === outletId);
+  const selected = pharmacy?.locations.find((location) => location.id === outletId);
 
   return (
     <div className="w-full max-w-[560px] rounded-[28px] bg-white px-6 py-8 shadow-[0_30px_80px_-30px_rgba(15,81,50,0.35)] sm:px-10">
@@ -147,53 +179,93 @@ function LoginFormFields({ saved, locations }: { saved: Remembered | null; locat
             onChange={(event) => setIdentifier(event.target.value)}
             placeholder={mode === "email" ? "Email address" : "Staff ID — type or scan badge (e.g. W365-0004)"}
             className="h-full w-full bg-transparent text-[15px] outline-none placeholder:text-slate-500"
+            readOnly={Boolean(pharmacies)}
             required
           />
         </label>
 
-        <div className="relative" ref={menuRef}>
-          <button
-            type="button"
-            aria-haspopup="listbox"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-            className={`flex h-12 w-full items-center gap-3 rounded-xl border px-4 text-left transition ${
-              menuOpen ? "border-green-600 ring-2 ring-green-600/15" : "border-green-600/70"
-            }`}
-          >
-            <Store className="h-5 w-5 shrink-0 text-green-800" />
-            <span className={`flex-1 truncate text-[15px] ${selected ? "text-slate-900" : "font-semibold text-slate-900"}`}>
-              {selected?.label ?? "Select Outlet / Location"}
-            </span>
-            <ChevronDown className={`h-5 w-5 text-green-800 transition ${menuOpen ? "rotate-180" : ""}`} />
-          </button>
-          {menuOpen ? (
-            <ul role="listbox" className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
-              {locations.map((location) => {
-                const active = location.id === outletId;
-                return (
-                  <li key={location.id} role="option" aria-selected={active}>
+        {pharmacies ? (
+          <div className="space-y-3 rounded-2xl border border-green-200 bg-green-50/60 p-3">
+            {pharmacies.length > 1 ? (
+              <div role="radiogroup" aria-label="Pharmacy" className="grid gap-2">
+                {pharmacies.map((entry) => {
+                  const active = entry.tenantId === tenantId;
+                  return (
                     <button
+                      key={entry.tenantId}
                       type="button"
-                      onClick={() => {
-                        setOutletId(location.id);
-                        setMenuOpen(false);
-                        setError("");
-                      }}
-                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[15px] ${
-                        active ? "bg-green-700 text-white" : "text-slate-800 hover:bg-green-50"
-                      }`}
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => choosePharmacy(entry)}
+                      className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${active ? "border-green-700 bg-green-700 text-white" : "border-slate-300 bg-white text-slate-900 hover:border-green-600"}`}
                     >
+                      <Building2 className="h-5 w-5 shrink-0" />
+                      <span className="flex-1">
+                        <span className="block font-semibold">{entry.name}</span>
+                        <span className={`block text-xs ${active ? "text-green-50" : "text-slate-500"}`}>{entry.role}</span>
+                      </span>
                       <Check className={`h-4 w-4 ${active ? "opacity-100" : "opacity-0"}`} />
-                      <Store className="h-4 w-4 opacity-80" />
-                      {location.label}
                     </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-        </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="flex items-center gap-2 px-1 text-sm font-semibold text-green-900">
+                <Building2 className="h-4 w-4" /> {pharmacy?.name} · <span className="font-normal">{pharmacy?.role}</span>
+              </p>
+            )}
+
+            {pharmacy ? (
+              <div className="relative" ref={menuRef}>
+                <button
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={menuOpen}
+                  onClick={() => setMenuOpen((open) => !open)}
+                  className={`flex h-12 w-full items-center gap-3 rounded-xl border bg-white px-4 text-left transition ${
+                    menuOpen ? "border-green-600 ring-2 ring-green-600/15" : "border-green-600/70"
+                  }`}
+                >
+                  <Store className="h-5 w-5 shrink-0 text-green-800" />
+                  <span className={`flex-1 truncate text-[15px] ${selected ? "text-slate-900" : "font-semibold text-slate-900"}`}>
+                    {selected?.name ?? "Select Outlet / Location"}
+                  </span>
+                  <ChevronDown className={`h-5 w-5 text-green-800 transition ${menuOpen ? "rotate-180" : ""}`} />
+                </button>
+                {menuOpen ? (
+                  <ul role="listbox" className="absolute z-20 mt-1.5 max-h-72 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                    {pharmacy.locations.map((location) => {
+                      const active = location.id === outletId;
+                      return (
+                        <li key={location.id} role="option" aria-selected={active}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOutletId(location.id);
+                              setPreferredOutlet(location.id);
+                              setMenuOpen(false);
+                              setError("");
+                            }}
+                            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[15px] ${
+                              active ? "bg-green-700 text-white" : "text-slate-800 hover:bg-green-50"
+                            }`}
+                          >
+                            <Check className={`h-4 w-4 ${active ? "opacity-100" : "opacity-0"}`} />
+                            <Store className="h-4 w-4 opacity-80" />
+                            {location.name}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+            <button type="button" onClick={startOver} className="px-1 text-sm font-medium text-green-700 hover:text-green-800">
+              ← Use a different account
+            </button>
+          </div>
+        ) : null}
 
         <label className={fieldShell}>
           <LockKeyhole className="h-5 w-5 shrink-0 text-slate-600" />
@@ -246,7 +318,7 @@ function LoginFormFields({ saved, locations }: { saved: Remembered | null; locat
           className="flex h-12 w-full items-center justify-center gap-3 rounded-xl bg-gradient-to-b from-green-600 to-green-800 text-lg font-semibold text-white shadow-sm transition hover:from-green-600 hover:to-green-700 disabled:opacity-70"
         >
           {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <LogIn className="h-5 w-5" />}
-          {isSubmitting ? "Signing in…" : "Sign In"}
+          {isSubmitting ? (pharmacies ? "Signing in…" : "Checking…") : pharmacies ? "Sign In" : "Continue"}
         </button>
 
         <div className="flex items-center gap-4 text-slate-600">
@@ -286,8 +358,8 @@ function LoginFormFields({ saved, locations }: { saved: Remembered | null; locat
                 setMode("email");
                 setIdentifier(account.email);
                 setPassword("Admin@123");
-                setOutletId(account.outletId);
-                setError("");
+                setPreferredOutlet(account.outletId);
+                startOver();
               }}
               className="rounded-lg border border-slate-200 px-3 py-2 text-left transition hover:border-green-600 hover:bg-green-50"
             >

@@ -5,6 +5,7 @@ import { postStock } from "@/lib/erp/ledger";
 import { assertCan, assertOutletAccess, DomainError, isBatchBlocked, outletName, recordAudit } from "@/lib/erp/services";
 import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor, Payment, SaleReturn } from "@/lib/erp/types";
+import { newId } from "@/lib/erp/ids";
 
 const RETURN_WINDOW_DAYS = 30;
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -93,7 +94,7 @@ export function createSaleReturn(actor: Actor, saleId: string, input: ReturnInpu
     if (!product || !batch) continue;
     postStock(actor, { type: "SALE_RETURN", product, batch, baseQuantity: line.quantity, reference: number, remarks: `Customer return on ${sale.number}: ${input.reason.trim()}` });
     stockMovements.unshift({
-      id: `mov-${nextNumber("movement")}`,
+      id: newId("mov", `${nextNumber("movement")}`),
       reference: number,
       date: today.slice(0, 10),
       type: "Return",
@@ -117,7 +118,7 @@ export function createSaleReturn(actor: Actor, saleId: string, input: ReturnInpu
   if (refunded > 0) {
     const method = input.refundMethod === "Account credit" ? "Cash" : input.refundMethod;
     store.payments.unshift({
-      id: `pay-${Date.now()}`,
+      id: newId("pay", `${Date.now()}`),
       reference: `RFD-${String(nextNumber("payment")).padStart(5, "0")}`,
       date: today,
       direction: "OUT",
@@ -133,7 +134,7 @@ export function createSaleReturn(actor: Actor, saleId: string, input: ReturnInpu
   }
 
   const saleReturn: SaleReturn = {
-    id: `ret-${Date.now()}`,
+    id: newId("ret", `${Date.now()}`),
     number,
     saleId: sale.id,
     saleNumber: sale.number,

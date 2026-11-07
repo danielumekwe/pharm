@@ -5,6 +5,7 @@ import { documentStore } from "@/lib/erp/document-storage";
 import { assertCan, DomainError, outletName, recordAudit } from "@/lib/erp/services";
 import { getStore } from "@/lib/erp/store";
 import { DOCUMENT_CATEGORIES, REGISTRATION_STATUSES, type Actor, type ProductRegistration, type RegistrationStatus, type RegulatoryDocument } from "@/lib/erp/types";
+import { newId } from "@/lib/erp/ids";
 
 const DAY = 1000 * 60 * 60 * 24;
 /** NAFDAC renewals should be filed about six months before expiry. */
@@ -147,7 +148,7 @@ export async function saveDocument(
   await (await documentStore()).put(storedName, bytes, file.type);
 
   const document: RegulatoryDocument = {
-    id: `doc-${Date.now()}`,
+    id: newId("doc", `${Date.now()}`),
     title,
     category: meta.category as RegulatoryDocument["category"],
     relatedTo,

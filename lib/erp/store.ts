@@ -27,6 +27,7 @@ import type {
   SaleInvoice,
   Supplier,
 } from "@/lib/erp/types";
+import { assertWorkingSetAccess, guardWorkingSet } from "@/lib/working-set";
 
 export type ErpStore = {
   customers: Customer[];
@@ -419,7 +420,9 @@ function createStore(): ErpStore {
 const STORE_KEY = `__pharmErpStore_v${DATA_VERSION}`;
 const globalStore = globalThis as typeof globalThis & Record<string, ErpStore | undefined>;
 
+/** The current tenant's ERP store (guarded: usable only inside that tenant's transaction). */
 export function getStore(): ErpStore {
+  assertWorkingSetAccess();
   let store = globalStore[STORE_KEY];
   if (!store) {
     store = createStore();
@@ -450,7 +453,7 @@ export function getStore(): ErpStore {
   store.settings.expiryIntervals ??= [...DEFAULT_SETTINGS.expiryIntervals];
   store.settings.criticalShortagePct ??= DEFAULT_SETTINGS.criticalShortagePct;
   store.settings.dailySummaryHour ??= DEFAULT_SETTINGS.dailySummaryHour;
-  return store;
+  return guardWorkingSet(store);
 }
 
 export function nextNumber(key: string) {

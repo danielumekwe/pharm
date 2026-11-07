@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { buildReport } from "@/lib/erp/reports";
 import { getActor } from "@/lib/session";
 import { canAny } from "@/lib/rbac";
+import { withDatabaseTransaction } from "@/lib/db/database";
 
 type Column = { header: string; key: string; width?: number; money?: boolean; percent?: boolean };
 
@@ -23,7 +24,12 @@ function addSheet(book: ExcelJS.Workbook, name: string, columns: Column[], rows:
   return sheet;
 }
 
+/** The whole export runs in the pharmacy's transaction: report data, and its audit entry, belong to that pharmacy. */
 export async function GET(request: Request) {
+  return withDatabaseTransaction(() => exportReport(request));
+}
+
+async function exportReport(request: Request) {
   const actor = await getActor();
   if (!actor) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   if (!canAny(actor, ["reports.sales", "reports.inventory", "reports.financial"])) return NextResponse.json({ error: "Your role cannot export reports." }, { status: 403 });

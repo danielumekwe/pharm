@@ -15,6 +15,7 @@ import {
 import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor, StockTransfer } from "@/lib/erp/types";
 import { can, isOutletScoped } from "@/lib/rbac";
+import { newId } from "@/lib/erp/ids";
 
 function find(id: string) {
   const transfer = getStore().transfers.find((row) => row.id === id || row.reference === id);
@@ -57,7 +58,7 @@ export function createTransfer(actor: Actor, input: TransferInput) {
     return { productId: product.id, productName: product.name, requested: line.quantity, dispatched: [], received: [] };
   });
   const transfer: StockTransfer = {
-    id: `trf-${Date.now().toString(36)}-${nextNumber("transferId")}`,
+    id: newId("trf", `${Date.now().toString(36)}-${nextNumber("transferId")}`),
     reference: `TRF-${String(nextNumber("transfer")).padStart(5, "0")}`,
     fromOutletId: input.fromOutletId,
     toOutletId: input.toOutletId,

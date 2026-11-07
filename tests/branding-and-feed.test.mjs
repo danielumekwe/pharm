@@ -24,7 +24,7 @@ async function uploadLogo(client, bytes, type) {
 }
 
 describe("Branding", () => {
-  test("site title defaults to Pharmacy ERP and follows the business name setting", async () => {
+  test("site title defaults to Pharmacy ERP; signed-in pages follow the pharmacy's business name", async () => {
     const page = async () => (await fetch(`${server.baseUrl}/`)).text();
     assert.match(await page(), /<title>Pharmacy ERP<\/title>/);
     assert.doesNotMatch(await page(), /PharmERP/i, "old product name is gone (demo emails @web365.ng are login IDs)");
@@ -32,9 +32,11 @@ describe("Branding", () => {
     const admin = await signedIn(server.baseUrl, "admin@web365.ng");
     const saved = await admin.post("/api/settings", { action: "update", businessName: "Greenleaf Pharmacy" });
     assert.equal(saved.status, 200, JSON.stringify(saved.data));
-    const html = await page();
-    assert.match(html, /<title>Greenleaf Pharmacy<\/title>/, "public sign-in page uses the new title");
-    assert.match(html, /Greenleaf Pharmacy/);
+    const html = await admin.request("GET", "/dashboard", undefined, { raw: true }).then((response) => response.text());
+    assert.match(html, /<title>Greenleaf Pharmacy<\/title>/, "the pharmacy's pages use its name");
+    // The public sign-in page belongs to no pharmacy: it keeps the platform name.
+    assert.match(await page(), /<title>Pharmacy ERP<\/title>/);
+    assert.doesNotMatch(await page(), /Greenleaf Pharmacy/);
 
     await admin.post("/api/settings", { action: "update", businessName: "Pharmacy ERP" });
   });
@@ -54,18 +56,22 @@ describe("Branding", () => {
     const { logoFile } = uploaded.data;
     assert.match(logoFile, /^brand-logo-[0-9a-f]+\.png$/);
 
-    // Public (the sign-in page shows it) and byte-for-byte identical.
-    const logo = await fetch(`${server.baseUrl}/api/branding/logo?v=${logoFile}`);
+    // Served to the pharmacy's own users, byte-for-byte identical, and never cached by shared caches.
+    const logo = await admin.request("GET", `/api/branding/logo?v=${logoFile}`, undefined, { raw: true });
     assert.equal(logo.status, 200);
     assert.equal(logo.headers.get("content-type"), "image/png");
-    assert.match(logo.headers.get("cache-control"), /immutable/);
+    assert.match(logo.headers.get("cache-control"), /private.*immutable/);
     assert.deepEqual(Buffer.from(await logo.arrayBuffer()), PNG);
-    assert.match(await (await fetch(`${server.baseUrl}/`)).text(), new RegExp(`/api/branding/logo\\?v=${logoFile}`), "sign-in page links the logo");
+    const dashboard = await admin.request("GET", "/dashboard", undefined, { raw: true }).then((response) => response.text());
+    assert.match(dashboard, new RegExp(`/api/branding/logo\\?v=${logoFile}`), "the app chrome links the logo");
+    // The public sign-in page and anonymous requests get the platform logo, not a pharmacy's.
+    assert.equal((await fetch(`${server.baseUrl}/api/branding/logo?v=${logoFile}`)).status, 404);
+    assert.doesNotMatch(await (await fetch(`${server.baseUrl}/`)).text(), new RegExp(logoFile));
 
     const removed = await admin.delete("/api/settings/logo");
     assert.equal(removed.status, 200);
     assert.equal(removed.data.logoFile, null);
-    assert.equal((await fetch(`${server.baseUrl}/api/branding/logo`)).status, 404);
+    assert.equal((await admin.request("GET", "/api/branding/logo", undefined, { raw: true })).status, 404);
   });
 });
 

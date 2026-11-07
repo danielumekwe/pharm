@@ -5,8 +5,8 @@ import { timingSafeEqual } from "node:crypto";
 
 import { runDailySummary, runMonthlyReport, schedulerTick } from "@/lib/erp/alert-jobs";
 import { scanAlerts } from "@/lib/erp/alerts";
-import { withDatabaseTransaction } from "@/lib/db/database";
 import { guarded } from "@/lib/session";
+import { forEachTenant } from "@/lib/saas/jobs";
 
 const schema = z.object({ job: z.enum(["scan", "daily", "monthly"]) });
 
@@ -25,28 +25,26 @@ function secretMatches(provided: string | null) {
 
 /**
  * Scheduled run for hosts with HTTP cron (e.g. Vercel Cron), which call GET with
- * `Authorization: Bearer $CRON_SECRET`: scan alerts, retry failed emails, and send any due daily/monthly summary.
+ * `Authorization: Bearer $CRON_SECRET`: for every active pharmacy, scan alerts, retry failed emails, and send
+ * any due daily/monthly summary.
  */
 export async function GET(request: Request) {
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
   if (!secretMatches(bearer)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  return withDatabaseTransaction(async () => {
-    await schedulerTick();
-    return NextResponse.json({ ok: true, ranAt: new Date().toISOString() });
-  });
+  const results = await forEachTenant(() => schedulerTick());
+  return NextResponse.json({ ok: results.every((entry) => entry.ok), pharmacies: results.length, failed: results.filter((entry) => !entry.ok).map((entry) => entry.tenantId), ranAt: new Date().toISOString() });
 }
 
 /**
- * Runs an alert job now. Callable by central managers from the UI, or by an external scheduler
- * with the header `x-cron-secret: $CRON_SECRET` (for deployments that disable the in-process scheduler).
+ * Runs an alert job now. Callable by central managers from the UI (for their own pharmacy), or by an external
+ * scheduler with the header `x-cron-secret: $CRON_SECRET` (for every active pharmacy).
  */
 export async function POST(request: Request) {
   if (secretMatches(request.headers.get("x-cron-secret"))) {
-    return withDatabaseTransaction(async () => {
-      const body = schema.safeParse(await request.json().catch(() => ({})));
-      if (!body.success) return NextResponse.json({ error: "Invalid job." }, { status: 400 });
-      return NextResponse.json(await run(body.data.job));
-    });
+    const body = schema.safeParse(await request.json().catch(() => ({})));
+    if (!body.success) return NextResponse.json({ error: "Invalid job." }, { status: 400 });
+    const job = body.data.job;
+    return NextResponse.json({ job, results: await forEachTenant(() => run(job)) });
   }
   return guarded("reports.consolidated", async (actor) => run(schema.parse(await request.json()).job, actor));
 }

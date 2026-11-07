@@ -20,6 +20,9 @@ import {
   type Permission,
   type Role,
 } from "@/lib/rbac";
+import { newId } from "@/lib/erp/ids";
+import { emailTaken, sharedWithOtherPharmacies } from "@/lib/saas/identity";
+import { currentTenantId } from "@/lib/saas/tenant";
 
 const DAY = 1000 * 60 * 60 * 24;
 const STAFF_ID_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,19}$/;
@@ -55,7 +58,7 @@ function assignedOutlets(user: Pick<User, "outletId" | "outletIds">) {
 
 function newInvite() {
   const { inviteValidityHours } = getStore().settings;
-  return { token: randomBytes(24).toString("hex"), expiresAt: new Date(Date.now() + inviteValidityHours * 3_600_000).toISOString() };
+  return { token: randomBytes(24).toString("hex"), expiresAt: new Date(Date.now() + inviteValidityHours * 3_600_000).toISOString(), tenantId: currentTenantId() };
 }
 
 /** Public, non-secret view of a user for the admin UI. */
@@ -176,6 +179,9 @@ export type CreateUserInput = {
 export async function createUser(actor: Actor, input: CreateUserInput) {
   assertCan(actor, "users.manage");
   const contact = checkContact(input);
+  if (await emailTaken(contact.email)) {
+    throw new DomainError("This email already has an account with another pharmacy on the platform. Use a different email for now; adding existing accounts is coming in a later release.");
+  }
   const staffId = (input.staffId?.trim() || nextStaffId()).toUpperCase();
   if (!STAFF_ID_PATTERN.test(staffId)) throw new DomainError("Staff ID must be 3–20 letters, numbers or dashes (e.g. W365-0021).");
   if (users.some((user) => user.staffId?.toUpperCase() === staffId)) throw new DomainError(`Staff ID ${staffId} is already in use.`);
@@ -183,7 +189,7 @@ export async function createUser(actor: Actor, input: CreateUserInput) {
   const grants = checkGrants(actor, assignment.role, input.grants ?? []);
 
   const user: User = {
-    id: `user-${Date.now()}`,
+    id: newId("user", `${Date.now()}`),
     staffId,
     name: contact.name,
     email: contact.email,
@@ -227,7 +233,7 @@ export type UpdateUserInput = {
   grants?: string[];
 };
 
-export function updateUser(actor: Actor, userId: string, input: UpdateUserInput) {
+export async function updateUser(actor: Actor, userId: string, input: UpdateUserInput) {
   const user = users.find((row) => row.id === userId);
   if (!user) throw new DomainError("User not found.", 404);
   assertManage(actor, user);
@@ -237,6 +243,11 @@ export function updateUser(actor: Actor, userId: string, input: UpdateUserInput)
 
   if (input.name !== undefined || input.email !== undefined || input.phone !== undefined) {
     const contact = checkContact({ name: input.name ?? user.name, email: input.email ?? user.email, phone: input.phone ?? user.phone ?? "" }, user.id);
+    if (contact.email !== user.email.toLowerCase() && contact.email !== user.email) {
+      // An account's email is its sign-in name everywhere; one pharmacy may not change it for another's staff.
+      if (await sharedWithOtherPharmacies(user.id, currentTenantId())) throw new DomainError("This person also works for another pharmacy. Only they can change their email.");
+      if (await emailTaken(contact.email, user.id)) throw new DomainError("Another account already uses this email.");
+    }
     if (contact.name !== user.name) changes.push(`name → ${contact.name}`);
     if (contact.email !== user.email) changes.push(`email → ${contact.email}`);
     if (contact.phone !== (user.phone ?? "")) changes.push("phone updated");
@@ -319,6 +330,8 @@ export async function resetPassword(actor: Actor, userId: string) {
   if (!user) throw new DomainError("User not found.", 404);
   assertManage(actor, user);
   if (user.status === "DEACTIVATED") throw new DomainError("Reactivate the account before resetting its password.");
+  // The password protects the person's access to every pharmacy they work for.
+  if (await sharedWithOtherPharmacies(user.id, currentTenantId())) throw new DomainError("This person also works for another pharmacy. Only they can change their password.");
 
   const password = temporaryPassword();
   await setPassword(user, password);

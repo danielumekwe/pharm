@@ -4,6 +4,7 @@ declare module "next-auth" {
   interface User {
     role?: string;
     outletId?: string | null;
+    tenantId?: string;
   }
 
   interface Session {
@@ -19,6 +20,11 @@ declare module "next-auth" {
       staffId: string | null;
       /** Names of the outlets in outletIds (from the database). */
       outlets: { id: string; name: string }[];
+      /** The pharmacy (tenant) this session works in; null when the membership is gone. */
+      tenantId: string | null;
+      tenantName: string | null;
+      /** Pharmacies the account may switch to (active memberships). */
+      pharmacies: { id: string; name: string }[];
       /** Set while a Super Administrator is acting as this user. */
       impersonation: { sessionId: string; adminId: string; adminName: string; startedAt: string; expiresAt: string } | null;
     } & DefaultSession["user"];
@@ -32,5 +38,7 @@ declare module "next-auth/jwt" {
     outletId?: string | null;
     impersonationId?: string;
     adminOutletId?: string | null;
+    /** The pharmacy the session belongs to; checked against the live membership on every request. */
+    tenantId?: string;
   }
 }

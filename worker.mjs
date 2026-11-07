@@ -1,17 +1,15 @@
 import openNextWorker from "./.open-next/worker.js";
-import { withDatabaseTransaction } from "./lib/db/database.ts";
 import { schedulerTick } from "./lib/erp/alert-jobs.ts";
+import { forEachTenant } from "./lib/saas/jobs.ts";
 
 const worker = {
   fetch(request, env, ctx) {
     return openNextWorker.fetch(request, env, ctx);
   },
   scheduled(_controller, env, ctx) {
+    // Every active pharmacy in turn, each in its own tenant transaction.
     ctx.waitUntil(
-      withDatabaseTransaction(
-        () => schedulerTick(),
-        env.HYPERDRIVE.connectionString,
-      ).catch((error) => {
+      forEachTenant(() => schedulerTick(), env.HYPERDRIVE.connectionString).catch((error) => {
         console.error("[alerts] scheduled job failed", error);
         throw error;
       }),

@@ -4,20 +4,138 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 
 import { AUTH_SECRET } from "@/lib/auth-secret";
-import { withDatabaseTransaction } from "@/lib/db/database";
-import { findUserByCredentials, getOutletById, users } from "@/lib/data";
+import { currentTenant, withDatabaseTransaction } from "@/lib/db/database";
+import { getOutletById, users } from "@/lib/data";
 import { allowedOutletIds, canSwitchTo, HEAD_OFFICE, resolveActiveOutlet } from "@/lib/erp/access";
 import { activeImpersonation } from "@/lib/erp/impersonation";
 import { recordAudit } from "@/lib/erp/services";
 import { effectivePermissions, isOutletScoped } from "@/lib/rbac";
+import { accountIdsFor, activeMembership, pharmaciesFor, pharmacyNames, verifiedAccountIds } from "@/lib/saas/identity";
+import { limitSignIn, recordSignInFailure } from "@/lib/saas/rate-limit";
+import { runInTenant } from "@/lib/saas/tenant";
 
 function outletLabel(id: string | null) {
   return id ? getOutletById(id)?.name ?? id : "Head Office (all outlets)";
 }
 
-/** Shared by the web sign-in and the mobile app's token login. Returns null on bad credentials; throws with a user-facing message otherwise. */
-export async function authorizeCredentials(credentials: unknown) {
-  return authorizeImpl(credentials);
+const credentialsSchema = z.object({
+  identifier: z.string().trim().min(3).max(120),
+  password: z.string().min(6),
+  /** The pharmacy chosen on the sign-in form. Only accepted if the account holds a membership of it. */
+  tenantId: z.string().max(80).optional(),
+  outletId: z.string().max(40).optional().default(HEAD_OFFICE),
+});
+
+export type SignedInUser = { id: string; name: string; email: string; role: string; outletId: string | null; tenantId: string };
+
+/**
+ * Shared by the web sign-in and the mobile app's token login.
+ * 1. The password is checked against the global account (rate limited).
+ * 2. The pharmacy must be one the account belongs to (the only one, or the one chosen).
+ * 3. Inside that pharmacy: status, outlet access, last sign-in and the audit entry, as before.
+ * Returns null on bad credentials; throws with a user-facing message otherwise.
+ */
+export async function authorizeCredentials(credentials: unknown): Promise<SignedInUser | null> {
+  const parsed = credentialsSchema.safeParse(credentials);
+  if (!parsed.success) return null;
+  const { identifier, password, tenantId, outletId } = parsed.data;
+  await limitSignIn(identifier);
+
+  const accountIds = await verifiedAccountIds(identifier, password);
+  if (!accountIds.length) {
+    recordSignInFailure(identifier);
+    await recordFailedSignIn(identifier, tenantId);
+    return null;
+  }
+
+  const choices = await pharmaciesFor(accountIds);
+  const choice = tenantId ? choices.find((entry) => entry.tenantId === tenantId) : choices.length === 1 ? choices[0] : undefined;
+  if (!choice) {
+    if (!choices.length) throw new Error("This account does not have access to an active pharmacy. Contact your administrator.");
+    throw new Error(tenantId ? "This account does not have access to that pharmacy." : "Choose the pharmacy you are signing in to.");
+  }
+
+  const user = await runInTenant(choice.tenantId, () => withDatabaseTransaction(() => signInWithinTenant(choice.userId, identifier, outletId)));
+  return user ? { ...user, tenantId: choice.tenantId } : null;
+}
+
+/** Records "auth.failed" in the pharmacy the attempt was aimed at (the chosen one, or the account's only one). */
+async function recordFailedSignIn(identifier: string, tenantId: string | undefined) {
+  const choices = await pharmaciesFor(await accountIdsFor(identifier));
+  if (choices.length && choices.every((entry) => entry.status === "INVITED")) {
+    throw new Error("This account has not been activated yet. Use the invitation link you were sent.");
+  }
+  const target = tenantId ? choices.find((entry) => entry.tenantId === tenantId) : choices.length === 1 ? choices[0] : undefined;
+  if (!target) return;
+  await runInTenant(target.tenantId, () => withDatabaseTransaction(async () => {
+    const account = users.find((user) => user.id === target.userId);
+    if (!account) return;
+    recordAudit(
+      { id: account.id, name: account.name, role: account.role },
+      { action: "auth.failed", entity: "User", entityId: account.id, summary: `Failed sign-in for ${account.name} (wrong password)`, outletId: account.outletId, severity: "warning" },
+    );
+  }));
+}
+
+/** Runs inside the chosen pharmacy's transaction: the user record carries that pharmacy's membership. */
+function signInWithinTenant(userId: string, identifier: string, outletId: string) {
+  const account = users.find((user) => user.id === userId);
+  if (!account) return null;
+  const status = account.status ?? "ACTIVE";
+  if (status === "INVITED") throw new Error("This account has not been activated yet. Use the invitation link you were sent.");
+  if (status === "SUSPENDED") throw new Error("This account is suspended. Contact your manager.");
+  if (status === "DEACTIVATED") return null;
+
+  // The selected location must be one the account may work in.
+  const allowed = allowedOutletIds(account);
+  if (isOutletScoped(account.role)) {
+    if (allowed.length === 0) throw new Error("No open outlet is assigned to this account. Contact your manager.");
+    if (!allowed.includes(outletId)) {
+      const names = allowed.map((id) => getOutletById(id)?.name ?? id).join(" or ");
+      throw new Error(
+        outletId === HEAD_OFFICE
+          ? `Head Office sign-in is for central roles. Select ${names}.`
+          : `This account is assigned to ${names}. Select one of those locations.`,
+      );
+    }
+  } else if (outletId !== HEAD_OFFICE && !allowed.includes(outletId)) {
+    throw new Error("That outlet is closed or does not exist.");
+  }
+
+  const active = resolveActiveOutlet(account, outletId);
+  account.lastLogin = new Date().toISOString();
+  recordAudit(
+    { id: account.id, name: account.name, role: account.role },
+    {
+      action: "auth.login",
+      entity: "User",
+      entityId: account.id,
+      summary: `${account.name} signed in at ${outletLabel(active)}${identifier.toLowerCase() === account.staffId?.toLowerCase() ? " with staff ID" : ""}`,
+      outletId: active,
+    },
+  );
+  return { id: account.id, name: account.name, email: account.email, role: account.role, outletId: active };
+}
+
+/** Pharmacy switch requested by a signed-in user: checked against their live memberships. */
+async function switchPharmacy(token: Parameters<NonNullable<NonNullable<NextAuthOptions["callbacks"]>["jwt"]>>[0]["token"], requested: unknown) {
+  if (typeof requested !== "string" || typeof token.id !== "string" || token.impersonationId) return; // not while impersonating
+  if (requested === token.tenantId || !(await activeMembership(token.id, requested))) return;
+  const userId = token.id;
+  const fromName = currentTenant()?.name;
+  await runInTenant(requested, () => withDatabaseTransaction(async () => {
+    const record = users.find((row) => row.id === userId);
+    if (!record) return;
+    const outletId = resolveActiveOutlet(record, record.outletId ?? null);
+    token.tenantId = requested;
+    token.role = record.role;
+    token.outletId = outletId;
+    token.adminOutletId = undefined;
+    recordAudit(
+      { id: record.id, name: record.name, role: record.role },
+      { action: "auth.switch-pharmacy", entity: "User", entityId: record.id, summary: `${record.name} switched to this pharmacy${fromName ? ` from ${fromName}` : ""}`, outletId },
+    );
+  }));
 }
 
 export const authOptions: NextAuthOptions = {
@@ -35,154 +153,103 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         identifier: { label: "Email or staff ID", type: "text" },
         password: { label: "Password", type: "password" },
+        tenantId: { label: "Pharmacy", type: "text" },
         outletId: { label: "Outlet", type: "text" },
       },
-      authorize: (credentials) => authorizeImpl(credentials),
+      authorize: (credentials) => authorizeCredentials(credentials),
     }),
   ],
-  callbacks: {} as NextAuthOptions["callbacks"],
-};
-
-async function authorizeImpl(credentials: unknown) {
-        const parsed = z
-          .object({
-            identifier: z.string().trim().min(3).max(120),
-            password: z.string().min(6),
-            outletId: z.string().max(40).optional().default(HEAD_OFFICE),
-          })
-          .safeParse(credentials);
-
-        if (!parsed.success) return null;
-
-        // Staff badges carry the staff ID; resolve it to the account email.
-        const { identifier, password, outletId } = parsed.data;
-        const account =
-          users.find((user) => user.staffId?.toLowerCase() === identifier.toLowerCase()) ??
-          users.find((user) => user.email.toLowerCase() === identifier.toLowerCase());
-        if (!account) return null;
-
-        const status = account.status ?? "ACTIVE";
-        if (status === "INVITED") throw new Error("This account has not been activated yet. Use the invitation link you were sent.");
-
-        const result = await findUserByCredentials(account.email, password);
-        if (!result) {
-          recordAudit(
-            { id: account.id, name: account.name, role: account.role },
-            { action: "auth.failed", entity: "User", entityId: account.id, summary: `Failed sign-in for ${account.name} (wrong password)`, outletId: account.outletId, severity: "warning" },
-          );
-          return null;
-        }
-        if (status === "SUSPENDED") throw new Error("This account is suspended. Contact your manager.");
-        if (status === "DEACTIVATED") return null;
-
-        // The selected location must be one the account may work in.
-        const allowed = allowedOutletIds(account);
-        if (isOutletScoped(account.role)) {
-          if (allowed.length === 0) throw new Error("No open outlet is assigned to this account. Contact your manager.");
-          if (!allowed.includes(outletId)) {
-            const names = allowed.map((id) => getOutletById(id)?.name ?? id).join(" or ");
-            throw new Error(
-              outletId === HEAD_OFFICE
-                ? `Head Office sign-in is for central roles. Select ${names}.`
-                : `This account is assigned to ${names}. Select one of those locations.`,
-            );
-          }
-        } else if (outletId !== HEAD_OFFICE && !allowed.includes(outletId)) {
-          throw new Error("That outlet is closed or does not exist.");
-        }
-
-        const active = resolveActiveOutlet(account, outletId);
-        account.lastLogin = new Date().toISOString();
-        recordAudit(
-          { id: account.id, name: account.name, role: account.role },
-          {
-            action: "auth.login",
-            entity: "User",
-            entityId: account.id,
-            summary: `${account.name} signed in at ${outletLabel(active)}${identifier.toLowerCase() === account.staffId?.toLowerCase() ? " with staff ID" : ""}`,
-            outletId: active,
-          },
-        );
-
-        return { id: account.id, name: account.name, email: account.email, role: account.role, outletId: active };
-}
-
-authOptions.callbacks = {
+  callbacks: {
     async jwt({ token, user, trigger, session }) {
       if (user) {
-        token.id = String(user.id);
-        token.role = String(user.role ?? "");
-        token.outletId = user.outletId ? String(user.outletId) : null;
+        const signedIn = user as unknown as SignedInUser;
+        token.id = String(signedIn.id);
+        token.role = String(signedIn.role ?? "");
+        token.outletId = signedIn.outletId ? String(signedIn.outletId) : null;
+        token.tenantId = signedIn.tenantId;
       }
-
-      // Impersonation: only a session id is kept in the token; the session itself is validated server-side.
-      if (trigger === "update" && session && typeof session === "object" && "impersonate" in session) {
-        const requested = (session as { impersonate: unknown }).impersonate;
-        if (requested === null) {
+      if (trigger === "update" && session && typeof session === "object" && "tenantId" in session) {
+        await switchPharmacy(token, (session as { tenantId: unknown }).tenantId);
+      }
+      // Everything below reads the token's own pharmacy (no pharmacy: an anonymous scope with no data).
+      return runInTenant(token.tenantId ?? null, () => withDatabaseTransaction(async () => {
+        // Impersonation: only a session id is kept in the token; the session itself is validated server-side.
+        if (trigger === "update" && session && typeof session === "object" && "impersonate" in session) {
+          const requested = (session as { impersonate: unknown }).impersonate;
+          if (requested === null) {
+            token.impersonationId = undefined;
+            token.outletId = token.adminOutletId ?? null;
+            token.adminOutletId = undefined;
+          } else if (typeof requested === "string") {
+            const active = activeImpersonation(requested);
+            if (active && active.session.adminId === token.id) {
+              token.adminOutletId = token.outletId ?? null;
+              token.impersonationId = requested;
+              token.outletId = resolveActiveOutlet(active.target, null);
+            }
+          }
+        }
+        // A session that has ended (returned, expired, disabled, account changed) drops back to the administrator.
+        if (token.impersonationId && !activeImpersonation(token.impersonationId)) {
           token.impersonationId = undefined;
           token.outletId = token.adminOutletId ?? null;
           token.adminOutletId = undefined;
-        } else if (typeof requested === "string") {
-          const active = activeImpersonation(requested);
-          if (active && active.session.adminId === token.id) {
-            token.adminOutletId = token.outletId ?? null;
-            token.impersonationId = requested;
-            token.outletId = resolveActiveOutlet(active.target, null);
-          }
         }
-      }
-      // A session that has ended (returned, expired, disabled, account changed) drops back to the administrator.
-      if (token.impersonationId && !activeImpersonation(token.impersonationId)) {
-        token.impersonationId = undefined;
-        token.outletId = token.adminOutletId ?? null;
-        token.adminOutletId = undefined;
-      }
 
-      // Outlet switching: the requested outlet is validated against the live record of the effective user.
-      if (trigger === "update" && session && typeof session === "object" && "outletId" in session) {
-        const effectiveId = token.impersonationId ? activeImpersonation(token.impersonationId)?.target.id : token.id;
-        const record = users.find((row) => row.id === effectiveId);
-        const requested = (session as { outletId: unknown }).outletId;
-        const target = typeof requested === "string" && requested !== HEAD_OFFICE ? requested : null;
-        if (record && (record.status ?? "ACTIVE") === "ACTIVE" && canSwitchTo(record, target)) {
-          if (target !== token.outletId) {
-            const impersonation = token.impersonationId ? activeImpersonation(token.impersonationId) : null;
-            recordAudit(
-              {
-                id: record.id,
-                name: record.name,
-                role: record.role,
-                impersonation: impersonation ? { sessionId: impersonation.session.id, adminId: impersonation.admin.id, adminName: impersonation.admin.name, expiresAt: impersonation.session.expiresAt } : undefined,
-              },
-              { action: "auth.switch-outlet", entity: "User", entityId: record.id, summary: `${record.name} switched to ${outletLabel(target)}`, outletId: target },
-            );
+        // Outlet switching: the requested outlet is validated against the live record of the effective user.
+        if (trigger === "update" && session && typeof session === "object" && "outletId" in session) {
+          const effectiveId = token.impersonationId ? activeImpersonation(token.impersonationId)?.target.id : token.id;
+          const record = users.find((row) => row.id === effectiveId);
+          const requested = (session as { outletId: unknown }).outletId;
+          const target = typeof requested === "string" && requested !== HEAD_OFFICE ? requested : null;
+          if (record && (record.status ?? "ACTIVE") === "ACTIVE" && canSwitchTo(record, target)) {
+            if (target !== token.outletId) {
+              const impersonation = token.impersonationId ? activeImpersonation(token.impersonationId) : null;
+              recordAudit(
+                {
+                  id: record.id,
+                  name: record.name,
+                  role: record.role,
+                  impersonation: impersonation ? { sessionId: impersonation.session.id, adminId: impersonation.admin.id, adminName: impersonation.admin.name, expiresAt: impersonation.session.expiresAt } : undefined,
+                },
+                { action: "auth.switch-outlet", entity: "User", entityId: record.id, summary: `${record.name} switched to ${outletLabel(target)}`, outletId: target },
+              );
+            }
+            token.outletId = target;
           }
-          token.outletId = target;
         }
-      }
-      return token;
+        return token;
+      }));
     },
     async session({ session, token }) {
-      // Rebuilt from the live record on every read, so role, outlet and permission changes apply immediately.
-      // While impersonating, the effective user is the target; the administrator is reported separately.
-      const impersonation = token.impersonationId ? activeImpersonation(token.impersonationId) : null;
-      const record = impersonation ? impersonation.target : users.find((row) => row.id === token.id);
-      if (session.user) {
-        session.user.impersonation = impersonation
-          ? { sessionId: impersonation.session.id, adminId: impersonation.admin.id, adminName: impersonation.admin.name, startedAt: impersonation.session.startedAt, expiresAt: impersonation.session.expiresAt }
-          : null;
-        session.user.email = record?.email ?? session.user.email;
-        session.user.id = record?.id ?? (typeof token.id === "string" ? token.id : "");
-        session.user.role = record?.role ?? (typeof token.role === "string" ? token.role : "");
-        session.user.outletId = record ? resolveActiveOutlet(record, token.outletId ?? null) : null;
-        session.user.outletIds = record ? allowedOutletIds(record) : [];
-        session.user.permissions = record && (record.status ?? "ACTIVE") === "ACTIVE" ? effectivePermissions(record.role, record.grants ?? []) : [];
-        session.user.staffId = record?.staffId ?? null;
-        session.user.outlets = session.user.outletIds.map((id) => ({ id, name: getOutletById(id)?.name ?? id }));
-        if (record) session.user.name = record.name;
-      }
-      return session;
+      // Rebuilt from the live record of the token's pharmacy on every read, so role, outlet, permission and
+      // membership changes apply immediately. While impersonating, the effective user is the target.
+      return runInTenant(token.tenantId ?? null, () => withDatabaseTransaction(async () => {
+        const impersonation = token.impersonationId ? activeImpersonation(token.impersonationId) : null;
+        const record = impersonation ? impersonation.target : users.find((row) => row.id === token.id);
+        if (session.user) {
+          session.user.impersonation = impersonation
+            ? { sessionId: impersonation.session.id, adminId: impersonation.admin.id, adminName: impersonation.admin.name, startedAt: impersonation.session.startedAt, expiresAt: impersonation.session.expiresAt }
+            : null;
+          session.user.email = record?.email ?? session.user.email;
+          session.user.id = record?.id ?? (typeof token.id === "string" ? token.id : "");
+          session.user.role = record?.role ?? "";
+          session.user.outletId = record ? resolveActiveOutlet(record, token.outletId ?? null) : null;
+          session.user.outletIds = record ? allowedOutletIds(record) : [];
+          session.user.permissions = record && (record.status ?? "ACTIVE") === "ACTIVE" ? effectivePermissions(record.role, record.grants ?? []) : [];
+          session.user.staffId = record?.staffId ?? null;
+          session.user.outlets = session.user.outletIds.map((id) => ({ id, name: getOutletById(id)?.name ?? id }));
+          const tenant = currentTenant();
+          session.user.tenantId = record && tenant ? tenant.id : null;
+          session.user.tenantName = record && tenant ? tenant.name : null;
+          // The real account's pharmacies (not the impersonated user's), for the pharmacy switcher.
+          session.user.pharmacies = record && typeof token.id === "string" && !impersonation ? await pharmacyNames(token.id) : [];
+          if (record) session.user.name = record.name;
+        }
+        return session;
+      }));
     },
+  },
 };
 
 export default NextAuth(authOptions);

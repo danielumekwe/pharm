@@ -70,5 +70,19 @@ Option B, restore. Switch the app back to the Neon branch from step 1, or restor
 
 - [ ] Product owner approval
 - [ ] Neon branch and JSON backup taken
-- [ ] Check the app's role: `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;`. If either flag is true, RLS does not apply to the app and a dedicated role without them is needed (planned for Phase 2).
-- [ ] Deploy the Phase 1 code in the same window. The old code cannot write to the migrated schema, because `tenant_id` is required.
+- [ ] Run `prisma/sql/app-role.sql` once as the database owner, and set `DATABASE_APP_ROLE=pharm_app` on the app (Phase 2). Every transaction then runs `SET LOCAL ROLE pharm_app`, a role without `BYPASSRLS`. Without it, Row Level Security may not apply on Neon, where the owner role can bypass it.
+- [ ] Deploy the Phase 1 and 2 code in the same window. The old code cannot write to the migrated schema, because `tenant_id` is required.
+- [ ] Expect everyone to sign in again. Sessions from before Phase 2 carry no pharmacy and are treated as signed out.
+
+## Phase 2 (tenant context): what changes at runtime
+
+No database change. The app now:
+
+- Resolves the pharmacy for every transaction from the signed session or mobile token (or an explicit server-side scope for sign-in, invitations and jobs). It never reads it from request data.
+- Loads only that pharmacy's rows. Reading ERP data outside a transaction throws, so a page or route can never show another pharmacy's data left in memory.
+- Signs in with email or staff ID and password first, then lists only that account's pharmacies and locations (`POST /api/auth/pharmacies`). The public sign-in page shows no outlet names.
+- Takes role, status, permissions, default outlet and staff ID from the membership (`tenant_memberships`). The same columns on `users` are left untouched for rollback.
+- Gives other pharmacies' new records platform-unique IDs (`aud-<tenant>-<n>`). The demo pharmacy keeps `aud-<n>`.
+- Runs scheduled jobs once per active pharmacy.
+- Stores new Cloudflare R2 files under `<tenant>/<name>`.
+- Rate-limits sign-in per server instance: 10 failed attempts per account name, and 60 requests per address, per 15 minutes. `RATE_LIMIT=off` disables it (tests only).

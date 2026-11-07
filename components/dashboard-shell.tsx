@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Bell, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldAlert, Store, UserCog, X } from "lucide-react";
+import { Bell, Building2, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldAlert, Store, UserCog, X } from "lucide-react";
 import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { BrandLogo, BrandWordmark } from "@/components/branding";
@@ -189,6 +189,58 @@ function NotificationBell() {
 // ---------------------------------------------------------------- outlet context
 
 /** Shows the working outlet; multi-outlet and central users may switch. The server re-validates every switch. */
+/** The pharmacy this session works in; a menu when the account belongs to more than one. */
+export function PharmacySwitcher() {
+  const { data: session, update } = useSession();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const user = session?.user;
+  if (!user?.tenantId) return null;
+  const pharmacies = user.pharmacies ?? [];
+
+  if (pharmacies.length <= 1) {
+    return (
+      <div className="flex max-w-56 items-center gap-1.5 truncate rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800" title="Pharmacy">
+        <Building2 className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{user.tenantName}</span>
+      </div>
+    );
+  }
+
+  async function change(next: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      // The server switches only to a pharmacy this account is an active member of.
+      const updated = await update({ tenantId: next });
+      if (updated?.user.tenantId !== next) throw new Error("You no longer have access to that pharmacy.");
+      router.push("/dashboard");
+      router.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Cannot switch pharmacy.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="relative">
+      <label className="flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50 py-0.5 pl-3 pr-1 text-xs font-medium text-emerald-800">
+        <Building2 className="h-3.5 w-3.5 shrink-0" />
+        <span className="sr-only">Pharmacy</span>
+        <select value={user.tenantId} disabled={busy} onChange={(event) => void change(event.target.value)} className="max-w-48 cursor-pointer truncate bg-transparent py-1 pr-1 outline-none">
+          {pharmacies.map((pharmacy) => (
+            <option key={pharmacy.id} value={pharmacy.id}>
+              {pharmacy.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {error ? <p className="absolute right-0 top-full z-30 mt-1 w-64 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700 shadow">{error}</p> : null}
+    </div>
+  );
+}
+
 export function OutletSwitcher() {
   const { data: session, update } = useSession();
   const router = useRouter();
@@ -483,7 +535,7 @@ function Shell({ children }: { children: ReactNode }) {
             </button>
             <GlobalSearch items={flat} canSearchProducts={can("/products")} canSearchStockLevels={can("/stock-levels")} canSearchSales={can("/sales")} />
             <div className="ml-auto flex items-center gap-1.5 md:gap-2">
-              <div className="hidden sm:block"><OutletSwitcher /></div>
+              <div className="hidden items-center gap-1.5 sm:flex"><PharmacySwitcher /><OutletSwitcher /></div>
               <NotificationBell />
               {can("/settings") ? (
                 <Link href="/settings" className="hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:block" aria-label="System settings"><Settings className="h-5 w-5" /></Link>
@@ -491,7 +543,7 @@ function Shell({ children }: { children: ReactNode }) {
               <UserMenu />
             </div>
           </header>
-          <div className="border-b border-slate-200 bg-white px-3 py-2 sm:hidden print:hidden"><OutletSwitcher /></div>
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 bg-white px-3 py-2 sm:hidden print:hidden"><PharmacySwitcher /><OutletSwitcher /></div>
 
           <main className="theme-pharm min-w-0 flex-1 p-4 md:p-6">
             <AccessDeniedNotice />

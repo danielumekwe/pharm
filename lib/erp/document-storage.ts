@@ -7,7 +7,17 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { onDatabaseRollback, runSql } from "@/lib/db/database";
-import { currentTenantId } from "@/lib/saas/tenant";
+import { currentTenantId, DEFAULT_TENANT_ID } from "@/lib/saas/tenant";
+
+/**
+ * R2 object key: every pharmacy's files live under its own prefix. Files the demo pharmacy uploaded before
+ * multi-tenancy have no prefix and are still found under their old key.
+ */
+function objectKeys(name: string) {
+  const tenantId = currentTenantId();
+  const key = `${tenantId}/${name}`;
+  return { key, candidates: tenantId === DEFAULT_TENANT_ID ? [key, name] : [key] };
+}
 
 export type DocumentStore = {
   kind: "r2" | "postgres";
@@ -32,21 +42,28 @@ export async function documentStore(): Promise<DocumentStore> {
     return {
       kind: "r2",
       async put(name, bytes, mimeType) {
+        const { key } = objectKeys(name);
         // R2 is outside the database transaction: remove the object again if the transaction rolls back.
-        onDatabaseRollback(() => bucket.delete(name));
-        await bucket.put(name, bytes, { httpMetadata: { contentType: mimeType } });
+        onDatabaseRollback(() => bucket.delete(key));
+        await bucket.put(key, bytes, { httpMetadata: { contentType: mimeType } });
       },
       async get(name) {
-        const object = await bucket.get(name);
-        return object ? new Uint8Array(await object.arrayBuffer()) : null;
+        for (const key of objectKeys(name).candidates) {
+          const object = await bucket.get(key);
+          if (object) return new Uint8Array(await object.arrayBuffer());
+        }
+        return null;
       },
       async delete(name) {
-        const object = await bucket.get(name);
-        if (!object) return;
-        const bytes = await object.arrayBuffer();
-        const contentType = object.httpMetadata?.contentType;
-        onDatabaseRollback(() => bucket.put(name, bytes, { httpMetadata: { contentType } }).then(() => undefined));
-        await bucket.delete(name);
+        for (const key of objectKeys(name).candidates) {
+          const object = await bucket.get(key);
+          if (!object) continue;
+          const bytes = await object.arrayBuffer();
+          const contentType = object.httpMetadata?.contentType;
+          onDatabaseRollback(() => bucket.put(key, bytes, { httpMetadata: { contentType } }).then(() => undefined));
+          await bucket.delete(key);
+          return;
+        }
       },
     };
   }

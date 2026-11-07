@@ -57,13 +57,14 @@ export class Client {
   }
 
   /** Signs in with the credentials provider. Returns the NextAuth error message, or null on success. */
-  async login(identifier, outletId = "HQ", password = "Admin@123") {
+  /** tenantId: the pharmacy to sign in to (needed only for accounts that belong to several). */
+  async login(identifier, outletId = "HQ", password = "Admin@123", tenantId = undefined) {
     const csrfToken = await this.csrf();
     const response = await fetch(`${this.baseUrl}/api/auth/callback/credentials`, {
       method: "POST",
       redirect: "manual",
       headers: { cookie: this.cookieHeader(), "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ csrfToken, identifier, password, outletId, json: "true" }),
+      body: new URLSearchParams({ csrfToken, identifier, password, outletId, ...(tenantId ? { tenantId } : {}), json: "true" }),
     });
     this.store(response);
     const location = response.headers.get("location") ?? (await response.json().catch(() => ({}))).url ?? "";
@@ -82,9 +83,9 @@ export class Client {
   }
 }
 
-export async function signedIn(baseUrl, identifier, outletId = "HQ") {
+export async function signedIn(baseUrl, identifier, outletId = "HQ", tenantId = undefined) {
   const client = new Client(baseUrl);
-  const error = await client.login(identifier, outletId);
+  const error = await client.login(identifier, outletId, "Admin@123", tenantId);
   if (error) throw new Error(`Login failed for ${identifier}: ${error}`);
   return client;
 }

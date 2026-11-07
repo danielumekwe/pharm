@@ -6,6 +6,7 @@ import { DomainError, recordAudit } from "@/lib/erp/services";
 import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor, ImpersonationSession } from "@/lib/erp/types";
 import { ROLE_LABELS } from "@/lib/rbac";
+import { newId } from "@/lib/erp/ids";
 
 function endSession(session: ImpersonationSession, reason: string, by: { id: string; name: string; role: string } = { id: "system", name: "System", role: "SUPER_ADMIN" }) {
   if (session.endedAt) return session;
@@ -75,7 +76,7 @@ export async function startImpersonation(admin: Actor, input: { targetUserId: st
 
   const now = Date.now();
   const session: ImpersonationSession = {
-    id: `imp-${nextNumber("impersonation")}-${now.toString(36)}`,
+    id: newId("imp", `${nextNumber("impersonation")}-${now.toString(36)}`),
     adminId: admin.id,
     adminName: admin.name,
     targetId: target.id,

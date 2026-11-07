@@ -21,6 +21,7 @@ import {
   type Permission,
   type Role,
 } from "@/lib/rbac";
+import { newId } from "@/lib/erp/ids";
 
 // ---------------------------------------------------------------- outlets
 
@@ -51,7 +52,7 @@ export function createOutlet(actor: Actor, input: OutletInput) {
   assertCan(actor, "outlets.manage");
   const clean = checkOutlet(input);
   const outlet: Outlet = {
-    id: `outlet-${Date.now()}`,
+    id: newId("outlet", `${Date.now()}`),
     ...clean,
     stockValue: 0,
     sales: 0,

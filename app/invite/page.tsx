@@ -3,16 +3,39 @@ import { BrandWordmark } from "@/components/branding";
 import { getOutletById } from "@/lib/data";
 import { findInvite } from "@/lib/erp/users";
 import { getStore } from "@/lib/erp/store";
+import { currentTenant, withDatabaseTransaction } from "@/lib/db/database";
 import { ROLE_LABELS } from "@/lib/rbac";
+import { invitationTenant } from "@/lib/saas/identity";
+import { runInTenant } from "@/lib/saas/tenant";
 
 import { AcceptInviteForm } from "./accept-invite-form";
 
 export const metadata = { title: "Activate account" };
 
+type InviteView = { name: string; pharmacy: string; detail: string; staffId: string; email: string; minLength: number };
+
+/** Reads the invitation inside the pharmacy that sent it. */
+async function loadInvite(token: string): Promise<InviteView | null> {
+  const tenantId = token ? await invitationTenant(token) : null;
+  if (!tenantId) return null;
+  return runInTenant(tenantId, () => withDatabaseTransaction(() => {
+    const user = findInvite(token);
+    if (!user) return null;
+    return {
+      name: user.name,
+      pharmacy: currentTenant()?.name ?? "",
+      detail: `${ROLE_LABELS[user.role]} · ${(user.outletIds ?? []).map((id) => getOutletById(id)?.name ?? id).join(", ") || "All outlets"}`,
+      staffId: user.staffId ?? "",
+      email: user.email,
+      minLength: getStore().settings.passwordMinLength,
+    };
+  }));
+}
+
 export default async function InvitePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
   const token = typeof params.token === "string" ? params.token : "";
-  const user = token ? findInvite(token) : null;
+  const invite = await loadInvite(token);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#f2f6f3] px-4 py-10 text-slate-900">
@@ -20,13 +43,12 @@ export default async function InvitePage({ searchParams }: { searchParams: Promi
         <div className="flex flex-col items-center text-center">
           <BrandWordmark className="h-16 w-auto" />
         </div>
-        {user ? (
+        {invite ? (
           <>
-            <h1 className="mt-5 text-center text-xl font-bold">Welcome, {user.name}</h1>
-            <p className="mt-1 text-center text-sm text-slate-600">
-              {ROLE_LABELS[user.role]} · {(user.outletIds ?? []).map((id) => getOutletById(id)?.name ?? id).join(", ") || "All outlets"}
-            </p>
-            <AcceptInviteForm token={token} staffId={user.staffId ?? ""} email={user.email} minLength={getStore().settings.passwordMinLength} />
+            <h1 className="mt-5 text-center text-xl font-bold">Welcome, {invite.name}</h1>
+            <p className="mt-1 text-center text-sm text-slate-600">{invite.pharmacy}</p>
+            <p className="mt-0.5 text-center text-sm text-slate-600">{invite.detail}</p>
+            <AcceptInviteForm token={token} staffId={invite.staffId} email={invite.email} minLength={invite.minLength} />
           </>
         ) : (
           <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-sm text-rose-700">

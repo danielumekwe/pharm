@@ -10,6 +10,7 @@ import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor } from "@/lib/erp/types";
 import { sendEmail } from "@/lib/notify/email";
 import { isOutletScoped } from "@/lib/rbac";
+import { newId } from "@/lib/erp/ids";
 
 const SYSTEM = { id: "system", name: "Scheduler", role: "SUPER_ADMIN" as const };
 
@@ -18,7 +19,7 @@ function localDate(now: Date) {
 }
 
 function log(recipient: Actor & { email: string }, channel: "IN_APP" | "EMAIL", subject: string, event: string, status: "SENT" | "SKIPPED" | "FAILED", detail: string) {
-  getStore().deliveries.unshift({ id: `dlv-${nextNumber("delivery")}`, at: new Date().toISOString(), channel, recipientId: recipient.id, recipientName: recipient.name, subject, event, status, detail });
+  getStore().deliveries.unshift({ id: newId("dlv", `${nextNumber("delivery")}`), at: new Date().toISOString(), channel, recipientId: recipient.id, recipientName: recipient.name, subject, event, status, detail });
 }
 
 /** Active users who manage alerts or hold inventory reporting rights, as actors with their real access. */
@@ -56,7 +57,7 @@ export async function runDailySummary(trigger: Pick<Actor, "id" | "name" | "role
       `• Unacknowledged alerts: ${summary.unacknowledged}`,
     ];
     const title = `Daily inventory summary · ${summary.lowStock} low · ${summary.expiredBatches} expired`;
-    store.notifications.unshift({ id: `ntf-${nextNumber("notification")}`, userId: recipient.id, title, body: lines.slice(1).join("\n"), severity: summary.criticalOutlets.length || summary.expiredBatches ? "warning" : "info", link: "/alerts", createdAt: new Date().toISOString() });
+    store.notifications.unshift({ id: newId("ntf", `${nextNumber("notification")}`), userId: recipient.id, title, body: lines.slice(1).join("\n"), severity: summary.criticalOutlets.length || summary.expiredBatches ? "warning" : "info", link: "/alerts", createdAt: new Date().toISOString() });
     log(recipient, "IN_APP", title, event, "SENT", "Shown in notification centre");
     if (store.settings.alertEmail.enabled) {
       await deliverEmail({ recipientId: recipient.id, recipientName: recipient.name, event, payload: { to: recipient.email, subject: `[Pharmacy ERP] ${title}`, text: `${lines.join("\n")}\n\nOpen the alerts centre: ${process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? ""}/alerts` } });
@@ -108,7 +109,7 @@ export async function runMonthlyReport(trigger: Pick<Actor, "id" | "name" | "rol
     const workbook = await inventoryReportsExcel(reports);
     const title = `Monthly stock monitoring report · ${month}`;
     const body = reports.map((report) => `• ${report.title}: ${report.rows.length} line(s)`).join("\n");
-    store.notifications.unshift({ id: `ntf-${nextNumber("notification")}`, userId: recipient.id, title, body, severity: "info", link: "/alerts?tab=reports", createdAt: new Date().toISOString() });
+    store.notifications.unshift({ id: newId("ntf", `${nextNumber("notification")}`), userId: recipient.id, title, body, severity: "info", link: "/alerts?tab=reports", createdAt: new Date().toISOString() });
     log(recipient, "IN_APP", title, event, "SENT", "Shown in notification centre");
     const email = await sendEmail({
       to: recipient.email,

@@ -1,6 +1,7 @@
-// Phase 1 tenancy: a second pharmacy ("tenant-b") is written straight into the database next to the demo
-// pharmacy. The app (running as the demo tenant) must never show, change or link to tenant B's records, and
-// PostgreSQL itself (composite foreign keys + Row Level Security) must refuse cross-tenant reads and writes.
+// Multi-tenant isolation (SaaS phases 1–2). A second pharmacy ("tenant-b", Pharmacy B) is created next to the
+// demo pharmacy. Both are used through the app at the same time; neither may see, change, export, download,
+// link to or sign in to the other's data. The app runs as the restricted database role (pharm_app), so
+// PostgreSQL Row Level Security applies to every query it makes.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 
@@ -15,29 +16,41 @@ const TENANT_TABLES = [
   "sale_returns", "sale_return_lines", "impersonation_sessions", "app_state",
 ];
 const SECRET = "Tenant B Secret Paracetamol";
+const B_OWNER = "owner@pharmacy-b.ng";
+const CRON_SECRET = "test-cron-secret-for-tenancy";
 
 let server;
-let demoOutlet;
+let demo; // { outlet, product, productName, sale }
 before(async () => {
-  server = await startServer();
-  [demoOutlet] = await server.query("SELECT id, code FROM outlets WHERE tenant_id = 'tenant-demo' ORDER BY seq LIMIT 1");
-  const [admin] = await server.query("SELECT password_hash FROM users WHERE email = 'admin@web365.ng'");
-  // Tenant B reuses the demo outlet's code on purpose: business codes are unique per tenant, not globally.
+  // Files in PostgreSQL, as on the live Vercel deployment (DOCUMENT_STORAGE=postgres).
+  server = await startServer({ RATE_LIMIT: "on", CRON_SECRET, DOCUMENT_STORAGE: "postgres" });
+  const [outlet] = await server.query("SELECT id, code, name FROM outlets WHERE tenant_id = 'tenant-demo' ORDER BY seq LIMIT 1");
+  const [product] = await server.query("SELECT id, name FROM products WHERE tenant_id = 'tenant-demo' ORDER BY seq LIMIT 1");
+  const [sale] = await server.query("SELECT id FROM sales WHERE tenant_id = 'tenant-demo' LIMIT 1");
+  demo = { outlet, product: product.id, productName: product.name, sale: sale.id };
+  const [admin] = await server.query("SELECT password, password_hash FROM users WHERE email = 'admin@web365.ng'");
+  // Pharmacy B reuses the demo outlet's code on purpose: business codes are unique per pharmacy, not globally.
   await server.query("INSERT INTO tenants (id, slug, name) VALUES ('tenant-b', 'pharmacy-b', 'Pharmacy B')");
-  await server.query("INSERT INTO outlets (id, tenant_id, name, code, status, seq) VALUES ('outlet-b1', 'tenant-b', 'Pharmacy B Main', ?, 'OPEN', 1)", demoOutlet.code);
-  await server.query("INSERT INTO products (id, tenant_id, name, outlet_id, stock, seq) VALUES ('prod-b1', 'tenant-b', ?, 'outlet-b1', 50, 1)", SECRET);
-  await server.query("INSERT INTO batches (id, tenant_id, batch_number, product_id, assigned_outlet_id, expiry_date, available_quantity, seq) VALUES ('bat-b1', 'tenant-b', 'B-LOT-1', 'prod-b1', 'outlet-b1', '2030-01-01', 50, 1)");
-  await server.query("INSERT INTO customers (id, tenant_id, code, name, seq) VALUES ('cus-b1', 'tenant-b', 'CUS-0001', 'Tenant B Customer', 1)");
-  await server.query("INSERT INTO users (id, name, email, role, status, password_hash, seq) VALUES ('user-b1', 'Pharmacy B Owner', 'owner@pharmacy-b.ng', 'SUPER_ADMIN', 'ACTIVE', ?, 999)", admin.password_hash);
+  await server.query("INSERT INTO outlets (id, tenant_id, name, code, status, seq) VALUES ('outlet-b1', 'tenant-b', 'Pharmacy B Main', ?, 'OPEN', 1)", outlet.code);
+  await server.query("INSERT INTO products (id, tenant_id, name, outlet_id, stock, min_stock, seq) VALUES ('prod-b1', 'tenant-b', ?, 'outlet-b1', 50, 10, 1)", SECRET);
+  await server.query("INSERT INTO batches (id, tenant_id, batch_number, product_id, assigned_outlet_id, expiry_date, quantity_received, available_quantity, seq) VALUES ('bat-b1', 'tenant-b', 'B-LOT-1', 'prod-b1', 'outlet-b1', '2030-01-01', 50, 50, 1)");
+  await server.query("INSERT INTO customers (id, tenant_id, code, name, type, seq) VALUES ('cus-b1', 'tenant-b', 'CUS-0001', 'Tenant B Customer', 'Walk-in', 1)");
+  // Same password as the demo accounts (Admin@123), stored the same way.
+  await server.query("INSERT INTO users (id, name, email, role, status, password, password_hash, seq) VALUES ('user-b1', 'Pharmacy B Owner', ?, 'SUPER_ADMIN', 'ACTIVE', ?, ?, 999)", B_OWNER, admin.password, admin.password_hash);
   await server.query("INSERT INTO tenant_memberships (id, tenant_id, user_id, role, staff_id) VALUES ('mem-tenant-b-user-b1', 'tenant-b', 'user-b1', 'SUPER_ADMIN', 'W365-0001')");
-  await server.query("INSERT INTO user_outlets (tenant_id, user_id, position, outlet_id) VALUES ('tenant-b', 'user-b1', 0, 'outlet-b1')");
   await server.query("INSERT INTO app_state (tenant_id, key, value) VALUES ('tenant-b', 'settings', ?)", JSON.stringify({ businessName: "Pharmacy B" }));
+  // Pharmacy B's own counters, consistent with the customer created above.
+  await server.query("INSERT INTO app_state (tenant_id, key, value) VALUES ('tenant-b', 'counters', ?)", JSON.stringify({ customer: 2 }));
 });
 after(async () => {
   await server?.stop();
 });
 
-describe("Tenancy migration on a fresh database", () => {
+const text = async (client, path) => (await client.request("GET", path, undefined, { raw: true })).text();
+const DEMO_MARKERS = () => [demo.productName, demo.outlet.name, "Outlet 1 - Lekki", "admin@web365.ng"];
+const B_MARKERS = [SECRET, "prod-b1", "outlet-b1", "bat-b1", "Tenant B Customer", "Pharmacy B Main", B_OWNER];
+
+describe("Database after the tenancy migrations", () => {
   test("the demo tenant exists and every user has a membership", async () => {
     const [tenant] = await server.query("SELECT id, slug, is_demo FROM tenants WHERE id = 'tenant-demo'");
     assert.deepEqual(tenant, { id: "tenant-demo", slug: "demo", is_demo: true });
@@ -47,123 +60,197 @@ describe("Tenancy migration on a fresh database", () => {
 
   test("every tenant table has a required tenant_id and forced Row Level Security", async () => {
     const columns = await server.query("SELECT table_name, is_nullable FROM information_schema.columns WHERE column_name = 'tenant_id' AND table_schema = 'public'");
-    for (const table of TENANT_TABLES) {
-      assert.equal(columns.find((row) => row.table_name === table)?.is_nullable, "NO", `${table}.tenant_id is NOT NULL`);
-    }
+    for (const table of TENANT_TABLES) assert.equal(columns.find((row) => row.table_name === table)?.is_nullable, "NO", `${table}.tenant_id is NOT NULL`);
     const rls = await server.query("SELECT relname FROM pg_class WHERE relrowsecurity AND relforcerowsecurity AND relnamespace = 'public'::regnamespace");
     assert.deepEqual(rls.map((row) => row.relname).sort(), [...TENANT_TABLES].sort());
   });
 });
 
-describe("Application isolation (the app runs as the demo tenant)", () => {
-  test("no API response or page contains tenant B's records", async () => {
-    const admin = await signedIn(server.baseUrl, "admin@web365.ng");
-    for (const path of ["/api/products", "/api/catalog", "/api/stock-levels", "/api/pos/catalog", "/api/dashboard", "/api/stock-ledger", "/api/alerts"]) {
-      const response = await admin.request("GET", path, undefined, { raw: true });
-      const body = await response.text();
-      assert.ok(response.status < 500, `${path} answered ${response.status}`);
-      for (const marker of [SECRET, "prod-b1", "outlet-b1", "bat-b1", "Tenant B Customer", "Pharmacy B"]) {
-        assert.ok(!body.includes(marker), `${path} leaked ${marker}`);
-      }
-    }
-    for (const path of ["/", "/dashboard", "/products", "/outlets", "/contacts", "/users"]) {
-      const html = await admin.request("GET", path, undefined, { raw: true }).then((response) => response.text());
-      assert.ok(!html.includes(SECRET) && !html.includes("Pharmacy B Main") && !html.includes("Pharmacy B Owner"), `${path} leaked tenant B data`);
-    }
+describe("Sign-in", () => {
+  test("the public sign-in page names no pharmacy and no outlet", async () => {
+    const html = await (await fetch(`${server.baseUrl}/`)).text();
+    for (const marker of ["Outlet 1 - Lekki", "Pharmacy B Main", B_OWNER, "Web365 Demo Pharmacy"]) assert.ok(!html.includes(marker), `sign-in page shows ${marker}`);
   });
 
-  test("a user who belongs only to tenant B cannot sign in to the demo pharmacy", async () => {
+  test("pharmacies and locations are listed only after the password is checked, and only the account's own", async () => {
+    const ask = (identifier, password) => fetch(`${server.baseUrl}/api/auth/pharmacies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, password }) });
+    const wrong = await ask(B_OWNER, "Wrong#Pass1");
+    assert.equal(wrong.status, 401);
+    assert.ok(!(await wrong.text()).includes("Pharmacy B"));
+    const owner = await (await ask(B_OWNER, "Admin@123")).json();
+    assert.deepEqual(owner.pharmacies.map((entry) => entry.name), ["Pharmacy B"]);
+    assert.deepEqual(owner.pharmacies[0].locations.map((location) => location.id), ["HQ", "outlet-b1"]);
+    const cashier = await (await ask("relief@web365.ng", "Admin@123")).json();
+    assert.deepEqual(cashier.pharmacies.map((entry) => entry.tenantId), ["tenant-demo"]);
+    assert.ok(cashier.pharmacies[0].locations.every((location) => location.id.startsWith("outlet-")), "outlet staff see only their outlets");
+  });
+
+  test("each owner signs in to their own pharmacy and sees only its data", async () => {
+    const owner = await signedIn(server.baseUrl, B_OWNER);
+    const session = await owner.session();
+    assert.equal(session.user.tenantId, "tenant-b");
+    assert.equal(session.user.tenantName, "Pharmacy B");
+    const ownerProducts = await text(owner, "/api/products");
+    assert.ok(ownerProducts.includes(SECRET));
+    for (const marker of DEMO_MARKERS()) assert.ok(!ownerProducts.includes(marker), `Pharmacy B sees ${marker}`);
+
+    const admin = await signedIn(server.baseUrl, "admin@web365.ng");
+    assert.equal((await admin.session()).user.tenantId, "tenant-demo");
+    const adminProducts = await text(admin, "/api/products");
+    assert.ok(adminProducts.includes(demo.productName));
+    for (const marker of B_MARKERS) assert.ok(!adminProducts.includes(marker), `demo sees ${marker}`);
+  });
+
+  test("asking for a pharmacy the account does not belong to is refused", async () => {
     const client = new Client(server.baseUrl);
-    assert.ok(await client.login("owner@pharmacy-b.ng"), "sign-in is refused");
-    assert.ok(await client.login("owner@pharmacy-b.ng", "outlet-b1"), "naming tenant B's outlet does not help");
+    assert.match(await client.login(B_OWNER, "HQ", "Admin@123", "tenant-demo"), /does not have access/);
+    assert.match(await client.login(B_OWNER, "outlet-1", "Admin@123"), /closed or does not exist/, "the demo outlet is unknown in Pharmacy B");
   });
+});
 
-  test("tenant B's IDs in a request are treated as unknown", async () => {
-    const admin = await signedIn(server.baseUrl, "admin@web365.ng");
-    const product = await admin.get("/api/products/prod-b1");
-    assert.ok([403, 404].includes(product.status), `GET product answered ${product.status}`);
-    const edit = await admin.patch("/api/products/prod-b1", { name: "Hijacked" });
-    assert.ok(edit.status >= 400, `PATCH product answered ${edit.status}`);
-    const [row] = await server.query("SELECT name, tenant_id FROM products WHERE id = 'prod-b1'");
-    assert.deepEqual(row, { name: SECRET, tenant_id: "tenant-b" });
-  });
-
-  test("new records are stamped with the demo tenant, and the same codes may exist in tenant B", async () => {
-    const admin = await signedIn(server.baseUrl, "admin@web365.ng");
-    const created = await admin.post("/api/contacts", { kind: "customer", name: "Isolation Test Customer", type: "Walk-in", phone: "", email: "", creditLimit: 0, outletId: null });
-    assert.equal(created.status, 201, JSON.stringify(created.data));
-    const [row] = await server.query("SELECT tenant_id FROM customers WHERE name = 'Isolation Test Customer'");
-    assert.equal(row.tenant_id, "tenant-demo");
-    const [{ n }] = await server.query("SELECT COUNT(*) AS n FROM outlets WHERE code = ?", demoOutlet.code);
-    assert.equal(n, 2, "both tenants hold an outlet with the same code");
-  });
-
-  test("users created in the app get a membership of the demo tenant", async () => {
-    const admin = await signedIn(server.baseUrl, "admin@web365.ng");
-    const created = await admin.post("/api/users", {
-      name: "Membership Test", email: "membership.test@web365.ng", phone: "08012345678", role: "CASHIER", outletIds: [demoOutlet.id],
-      primaryOutletId: demoOutlet.id, status: "ACTIVE", credential: { mode: "password", password: "Strong#Pass123" },
-    });
-    assert.ok(created.status < 300, JSON.stringify(created.data));
-    const [membership] = await server.query(
-      "SELECT m.tenant_id, m.role, m.default_outlet_id FROM tenant_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = 'membership.test@web365.ng'",
-    );
-    assert.deepEqual(membership, { tenant_id: "tenant-demo", role: "CASHIER", default_outlet_id: demoOutlet.id });
-    const [assignment] = await server.query("SELECT uo.tenant_id FROM user_outlets uo JOIN users u ON u.id = uo.user_id WHERE u.email = 'membership.test@web365.ng'");
-    assert.equal(assignment.tenant_id, "tenant-demo");
-  });
-
-  test("a record ID already owned by tenant B is never overwritten; the whole request is rolled back", async () => {
-    const admin = await signedIn(server.baseUrl, "admin@web365.ng");
-    const [{ value }] = await server.query("SELECT value FROM app_state WHERE tenant_id = 'tenant-demo' AND key = 'counters'");
-    const nextAudit = `aud-${JSON.parse(value).audit ?? 1}`;
-    // Plant tenant B's row on the ID the next demo audit entry will use.
-    await server.query("INSERT INTO audit_events (id, tenant_id, at, summary, seq) VALUES (?, 'tenant-b', '2026-01-01T00:00:00Z', 'tenant B audit row', 1)", nextAudit);
-    try {
-      const response = await admin.post("/api/contacts", { kind: "customer", name: "Collision Customer", type: "Walk-in", phone: "", email: "", creditLimit: 0, outletId: null });
-      assert.ok(response.status >= 500, `expected the write to be refused, got ${response.status}`);
-      const [audit] = await server.query("SELECT tenant_id, summary FROM audit_events WHERE id = ?", nextAudit);
-      assert.deepEqual(audit, { tenant_id: "tenant-b", summary: "tenant B audit row" });
-      const [{ n }] = await server.query("SELECT COUNT(*) AS n FROM customers WHERE name = 'Collision Customer'");
-      assert.equal(n, 0, "nothing from the refused request was saved");
-    } finally {
-      await server.query("DELETE FROM audit_events WHERE id = ? AND tenant_id = 'tenant-b'", nextAudit);
+describe("No access across pharmacies (signed in as Pharmacy B)", () => {
+  test("API responses and pages show none of the demo pharmacy's data", async () => {
+    const owner = await signedIn(server.baseUrl, B_OWNER);
+    for (const path of ["/api/products", "/api/catalog", "/api/stock-levels", "/api/pos/catalog", "/api/dashboard", "/api/stock-ledger", "/api/alerts", "/api/sales", "/api/sales/feed", "/api/sales-overview", "/api/inventory-reports?kind=all", "/dashboard", "/products", "/outlets", "/contacts", "/users", "/sales", "/stock", "/audit", "/regulatory", "/finance", "/reports"]) {
+      const response = await owner.request("GET", path, undefined, { raw: true });
+      assert.ok(response.status < 500, `${path} answered ${response.status}`);
+      const body = await response.text();
+      for (const marker of DEMO_MARKERS()) assert.ok(!body.includes(marker), `${path} leaked ${marker}`);
     }
-    const retry = await admin.post("/api/contacts", { kind: "customer", name: "Collision Customer", type: "Walk-in", phone: "", email: "", creditLimit: 0, outletId: null });
-    assert.equal(retry.status, 201, "the app recovers once the ID is free");
   });
 
-  test("tenant B's data is unchanged after all of the above", async () => {
-    const rows = await server.query(
-      "SELECT (SELECT COUNT(*) FROM products WHERE tenant_id = 'tenant-b') AS products, (SELECT COUNT(*) FROM customers WHERE tenant_id = 'tenant-b') AS customers, (SELECT available_quantity FROM batches WHERE id = 'bat-b1') AS quantity, (SELECT COUNT(*) FROM audit_events WHERE tenant_id = 'tenant-b') AS audit",
-    );
-    assert.deepEqual(rows[0], { products: 1, customers: 1, quantity: 50, audit: 0 });
+  test("the demo pharmacy's record IDs are unknown: no reading, changing, receipts or downloads", async () => {
+    const owner = await signedIn(server.baseUrl, B_OWNER);
+    assert.ok([403, 404].includes((await owner.get(`/api/products/${demo.product}`)).status));
+    assert.ok((await owner.patch(`/api/products/${demo.product}`, { name: "Hijacked" })).status >= 400);
+    assert.ok([403, 404].includes((await owner.get(`/api/sales/${demo.sale}/receipt`)).status));
+    assert.ok((await owner.post(`/api/sales/${demo.sale}/returns`, { lines: [], reason: "x", refundMethod: "Cash" })).status >= 400);
+    const [row] = await server.query("SELECT name FROM products WHERE id = ?", demo.product);
+    assert.equal(row.name, demo.productName);
   });
-  test("one person can belong to both pharmacies; each keeps its own role and outlets", async () => {
+
+  test("the demo pharmacy's outlets cannot be chosen, sold from or reported on", async () => {
+    const owner = await signedIn(server.baseUrl, B_OWNER);
+    await owner.updateSession({ outletId: demo.outlet.id });
+    assert.notEqual((await owner.session()).user.outletId, demo.outlet.id);
+    const sale = await owner.post("/api/sales", { outletId: demo.outlet.id, customerId: "cus-b1", paymentMethod: "Cash", lines: [{ productId: demo.product, quantity: 1 }] });
+    assert.ok(sale.status >= 400, `sale answered ${sale.status}`);
+    const report = await text(owner, `/api/inventory-reports?kind=all&outlet=${demo.outlet.id}`);
+    for (const marker of DEMO_MARKERS()) assert.ok(!report.includes(marker));
+  });
+
+  test("regulatory files of one pharmacy cannot be downloaded by the other", async () => {
+    const admin = await signedIn(server.baseUrl, "admin@web365.ng");
+    const form = new FormData();
+    form.set("file", new File([Buffer.from("%PDF-1.4 demo licence")], "licence.pdf", { type: "application/pdf" }));
+    form.set("title", "Demo premises licence");
+    form.set("category", "PCN premises licence");
+    form.set("relatedTo", demo.outlet.id);
+    const uploaded = await fetch(`${server.baseUrl}/api/regulatory/documents`, { method: "POST", headers: { cookie: admin.cookieHeader() }, body: form });
+    assert.ok(uploaded.status < 300, await uploaded.text());
+    const [document] = await server.query("SELECT id, tenant_id FROM regulatory_documents WHERE title = 'Demo premises licence'");
+    assert.equal(document.tenant_id, "tenant-demo");
+    const [file] = await server.query("SELECT tenant_id FROM regulatory_files ORDER BY created_at DESC LIMIT 1");
+    assert.equal(file.tenant_id, "tenant-demo");
+    assert.equal((await admin.request("GET", `/api/regulatory/documents/${document.id}`, undefined, { raw: true })).status, 200);
+    const owner = await signedIn(server.baseUrl, B_OWNER);
+    assert.ok([403, 404].includes((await owner.request("GET", `/api/regulatory/documents/${document.id}`, undefined, { raw: true })).status));
+  });
+
+  test("Pharmacy B's new records carry Pharmacy B and platform-unique IDs", async () => {
+    const owner = await signedIn(server.baseUrl, B_OWNER);
+    const created = await owner.post("/api/contacts", { kind: "customer", name: "B Walk-in Two", type: "Walk-in", phone: "", email: "", creditLimit: 0, outletId: null });
+    assert.equal(created.status, 201, JSON.stringify(created.data));
+    const [customer] = await server.query("SELECT id, tenant_id FROM customers WHERE name = 'B Walk-in Two'");
+    assert.equal(customer.tenant_id, "tenant-b");
+    const audits = await server.query("SELECT id FROM audit_events WHERE tenant_id = 'tenant-b'");
+    assert.ok(audits.length > 0 && audits.every((row) => row.id.startsWith("aud-tenant-b-")), JSON.stringify(audits));
+    const [demoAudit] = await server.query("SELECT id FROM audit_events WHERE tenant_id = 'tenant-demo' ORDER BY seq DESC LIMIT 1");
+    assert.match(demoAudit.id, /^aud-\d+$/, "the demo pharmacy keeps its existing ID format");
+  });
+});
+
+describe("Simultaneous requests from both pharmacies", () => {
+  test("interleaved requests each see only their own pharmacy", async () => {
+    const [owner, admin] = await Promise.all([signedIn(server.baseUrl, B_OWNER), signedIn(server.baseUrl, "admin@web365.ng")]);
+    const calls = Array.from({ length: 12 }, (_, index) => (index % 2 ? { who: "b", client: owner } : { who: "demo", client: admin }));
+    const results = await Promise.all(calls.map(async (call) => ({ ...call, body: await text(call.client, "/api/products") })));
+    for (const { who, body } of results) {
+      if (who === "b") assert.ok(body.includes(SECRET) && !body.includes(demo.productName));
+      else assert.ok(body.includes(demo.productName) && !body.includes(SECRET));
+    }
+  });
+});
+
+describe("Pharmacy status, memberships and switching", () => {
+  test("one person in two pharmacies chooses one at sign-in, has a separate role in each, and can switch", async () => {
     const [admin] = await server.query("SELECT id FROM users WHERE email = 'admin@web365.ng'");
-    const before = await server.query("SELECT outlet_id FROM user_outlets WHERE user_id = ? AND tenant_id = 'tenant-demo' ORDER BY position", admin.id);
     await server.query("INSERT INTO tenant_memberships (id, tenant_id, user_id, role, staff_id) VALUES ('mem-tenant-b-admin', 'tenant-b', ?, 'CASHIER', 'B-0002')", admin.id);
     await server.query("INSERT INTO user_outlets (tenant_id, user_id, position, outlet_id) VALUES ('tenant-b', ?, 0, 'outlet-b1')", admin.id);
+    try {
+      assert.match(await new Client(server.baseUrl).login("admin@web365.ng"), /Choose the pharmacy/);
 
-    const client = await signedIn(server.baseUrl, "admin@web365.ng");
-    const session = await client.session();
-    assert.equal(session.user.role, "SUPER_ADMIN", "the demo role is unchanged by the tenant B membership");
-    assert.ok(!JSON.stringify(session).includes("outlet-b1"), "tenant B's outlet is not in the demo session");
-    // A write in the demo pharmacy rewrites the admin's demo assignments only.
-    const touched = await client.post("/api/contacts", { kind: "customer", name: "Dual Membership Customer", type: "Walk-in", phone: "", email: "", creditLimit: 0, outletId: null });
-    assert.equal(touched.status, 201);
-    assert.deepEqual(await server.query("SELECT outlet_id FROM user_outlets WHERE user_id = ? AND tenant_id = 'tenant-demo' ORDER BY position", admin.id), before);
-    const [membershipB] = await server.query("SELECT role, staff_id FROM tenant_memberships WHERE tenant_id = 'tenant-b' AND user_id = ?", admin.id);
-    assert.deepEqual(membershipB, { role: "CASHIER", staff_id: "B-0002" });
-    assert.deepEqual(await server.query("SELECT outlet_id FROM user_outlets WHERE user_id = ? AND tenant_id = 'tenant-b'", admin.id), [{ outlet_id: "outlet-b1" }]);
+      const inB = await signedIn(server.baseUrl, "admin@web365.ng", "outlet-b1", "tenant-b");
+      const sessionB = (await inB.session()).user;
+      assert.deepEqual([sessionB.tenantId, sessionB.role, sessionB.outletId], ["tenant-b", "CASHIER", "outlet-b1"]);
+      assert.deepEqual(sessionB.pharmacies.map((entry) => entry.id).sort(), ["tenant-b", "tenant-demo"]);
+      assert.equal((await inB.get("/api/users")).status === 200, false, "a cashier in B has no user admin there");
+
+      const inDemo = await signedIn(server.baseUrl, "admin@web365.ng", "HQ", "tenant-demo");
+      assert.equal((await inDemo.session()).user.role, "SUPER_ADMIN");
+      await inDemo.updateSession({ tenantId: "tenant-b" });
+      const switched = (await inDemo.session()).user;
+      assert.deepEqual([switched.tenantId, switched.role], ["tenant-b", "CASHIER"]);
+      await inDemo.updateSession({ tenantId: "tenant-nowhere" });
+      assert.equal((await inDemo.session()).user.tenantId, "tenant-b", "an unknown pharmacy is ignored");
+      const [audit] = await server.query("SELECT tenant_id FROM audit_events WHERE action = 'auth.switch-pharmacy'");
+      assert.equal(audit.tenant_id, "tenant-b");
+    } finally {
+      await server.query("DELETE FROM user_outlets WHERE tenant_id = 'tenant-b' AND user_id = ?", admin.id);
+      await server.query("DELETE FROM tenant_memberships WHERE id = 'mem-tenant-b-admin'");
+    }
+  });
+
+  test("a suspended pharmacy loses access at once; reactivating restores it", async () => {
+    const owner = await signedIn(server.baseUrl, B_OWNER);
+    assert.equal((await owner.get("/api/products")).status, 200);
+    await server.query("UPDATE tenants SET status = 'SUSPENDED' WHERE id = 'tenant-b'");
+    try {
+      assert.equal((await owner.get("/api/products")).status, 401);
+      assert.ok(await new Client(server.baseUrl).login(B_OWNER), "no new sign-in either");
+    } finally {
+      await server.query("UPDATE tenants SET status = 'ACTIVE' WHERE id = 'tenant-b'");
+    }
+    assert.equal((await owner.get("/api/products")).status, 200);
+  });
+
+  test("removing a membership ends that person's access to the pharmacy", async () => {
+    const owner = await signedIn(server.baseUrl, B_OWNER);
+    await server.query("UPDATE tenant_memberships SET status = 'DEACTIVATED' WHERE id = 'mem-tenant-b-user-b1'");
+    try {
+      assert.equal((await owner.get("/api/products")).status, 401);
+    } finally {
+      await server.query("UPDATE tenant_memberships SET status = 'ACTIVE' WHERE id = 'mem-tenant-b-user-b1'");
+    }
+  });
+});
+
+describe("Background jobs", () => {
+  test("scheduled jobs run once per pharmacy, each inside its own data", async () => {
+    const response = await fetch(`${server.baseUrl}/api/alerts/jobs`, { method: "POST", headers: { "Content-Type": "application/json", "x-cron-secret": CRON_SECRET }, body: JSON.stringify({ job: "scan" }) });
+    assert.equal(response.status, 200);
+    const { results } = await response.json();
+    assert.deepEqual(results.map((entry) => entry.tenantId).sort(), ["tenant-b", "tenant-demo"]);
+    assert.ok(results.every((entry) => entry.ok), JSON.stringify(results));
+    const crossed = await server.query("SELECT COUNT(*) AS n FROM inventory_alerts a JOIN products p ON p.id = a.product_id WHERE p.tenant_id <> a.tenant_id");
+    assert.equal(crossed[0].n, 0);
   });
 });
 
 describe("Database isolation", () => {
-  test("a link to another tenant's record is rejected by the composite foreign keys", async () => {
-    const [demoProduct] = await server.query("SELECT id FROM products WHERE tenant_id = 'tenant-demo' LIMIT 1");
+  test("a link to another pharmacy's record is rejected by the composite foreign keys", async () => {
     await assert.rejects(
-      server.query("INSERT INTO batches (id, tenant_id, batch_number, product_id, assigned_outlet_id, expiry_date, seq) VALUES ('bat-cross', 'tenant-b', 'X', ?, 'outlet-b1', '2030-01-01', 2)", demoProduct.id),
+      server.query("INSERT INTO batches (id, tenant_id, batch_number, product_id, assigned_outlet_id, expiry_date, seq) VALUES ('bat-cross', 'tenant-b', 'X', ?, 'outlet-b1', '2030-01-01', 2)", demo.product),
       (error) => error.code === "23503",
     );
     await assert.rejects(
@@ -172,14 +259,11 @@ describe("Database isolation", () => {
     );
   });
 
-  test("Row Level Security shows and accepts only the scoped tenant's rows", async () => {
-    // Superusers bypass RLS, so these checks run as an ordinary role, like the application should.
-    await server.query("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rls_probe') THEN CREATE ROLE rls_probe NOLOGIN; END IF; END $$");
-    await server.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO rls_probe");
+  test("as the app's role, Row Level Security shows and accepts only the scoped pharmacy's rows", async () => {
     const scoped = async (tenantId, sql, ...params) => {
       await server.query("BEGIN");
       try {
-        await server.query("SET LOCAL ROLE rls_probe");
+        await server.query("SET LOCAL ROLE pharm_app");
         if (tenantId !== null) await server.query("SELECT set_config('app.tenant_id', ?, true)", tenantId);
         return await server.query(sql, ...params);
       } finally {
@@ -187,19 +271,26 @@ describe("Database isolation", () => {
       }
     };
     const names = async (tenantId) => (await scoped(tenantId, "SELECT name FROM products")).map((row) => row.name);
-
     assert.deepEqual(await names("tenant-b"), [SECRET]);
     assert.ok(!(await names("tenant-demo")).includes(SECRET));
-    assert.ok((await names("tenant-demo")).length > 0);
-    assert.deepEqual(await names(null), [], "no tenant set: nothing visible");
-    assert.deepEqual(await scoped("tenant-demo", "SELECT id FROM products WHERE id = 'prod-b1'"), [], "a known ID of another tenant is invisible");
-    assert.deepEqual(await scoped("tenant-demo", "UPDATE products SET name = 'x' WHERE id = 'prod-b1' RETURNING id"), [], "and cannot be updated");
+    assert.deepEqual(await names(null), [], "no pharmacy set: nothing visible");
+    assert.deepEqual(await scoped("tenant-demo", "UPDATE products SET name = 'x' WHERE id = 'prod-b1' RETURNING id"), [], "another pharmacy's row cannot be updated");
     await assert.rejects(
       scoped("tenant-b", "INSERT INTO customers (id, tenant_id, code, name, seq) VALUES ('cus-smuggle', 'tenant-demo', 'CUS-9999', 'Smuggled', 1)"),
       (error) => error.code === "42501",
-      "writing a row for another tenant is refused",
     );
-    const settings = await scoped("tenant-b", "SELECT tenant_id, key FROM app_state ORDER BY tenant_id, key");
-    assert.ok(settings.every((row) => row.tenant_id === "tenant-b" || row.tenant_id === "_platform"), "app_state: own rows plus platform rows only");
+    const [{ bypass }] = await server.query("SELECT rolbypassrls AS bypass FROM pg_roles WHERE rolname = 'pharm_app'");
+    assert.equal(bypass, false);
+  });
+});
+
+describe("Sign-in rate limiting", () => {
+  test("after 10 failed attempts an account name is locked for a while, even with the right password", async () => {
+    const client = new Client(server.baseUrl);
+    for (let attempt = 0; attempt < 10; attempt += 1) assert.ok(await client.login("staff.vi@web365.ng", "outlet-3", "Wrong#Pass1"));
+    assert.match(await client.login("staff.vi@web365.ng", "outlet-3", "Admin@123"), /Too many attempts/);
+    const listed = await fetch(`${server.baseUrl}/api/auth/pharmacies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "staff.vi@web365.ng", password: "Admin@123" }) });
+    assert.equal(listed.status, 429);
+    await signedIn(server.baseUrl, "sales.vi@web365.ng", "outlet-3"); // other accounts are unaffected
   });
 });

@@ -14,7 +14,6 @@ import { connection } from "next/server";
 import { BrandName, BrandWordmark } from "@/components/branding";
 import { LoginForm } from "@/components/login-form";
 import { WelcomeSlides } from "@/components/welcome-slides";
-import { outlets } from "@/lib/data";
 
 const features = [
   { icon: ShoppingCart, label: "POS & Sales" },
@@ -39,9 +38,8 @@ const shelfBackdrop = {
 };
 
 export default async function HomePage() {
-  // Rendered per request so outlets created by administrators appear in the sign-in list.
+  // Public page: it shows no pharmacy or outlet names. Locations are listed only after the password is checked.
   await connection();
-  const openOutlets = outlets.filter((outlet) => outlet.status !== "CLOSED").map((outlet) => ({ id: outlet.id, name: outlet.name }));
 
   return (
     <main className="flex min-h-screen flex-col bg-[#f2f6f3] text-slate-900 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,640px)]">
@@ -96,7 +94,7 @@ export default async function HomePage() {
       </section>
 
       <section className="order-1 flex items-start justify-center px-4 py-6 sm:px-8 lg:order-none lg:items-center lg:py-12 lg:pr-12">
-        <LoginForm outlets={openOutlets} />
+        <LoginForm />
       </section>
     </main>
   );

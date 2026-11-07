@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   return new NextResponse(new Uint8Array(logo.bytes), {
     headers: {
       "Content-Type": logo.mimeType,
-      "Cache-Control": versioned ? "public, max-age=31536000, immutable" : "public, max-age=60",
+      "Cache-Control": versioned ? "private, max-age=31536000, immutable" : "private, max-age=60",
       "X-Content-Type-Options": "nosniff",
     },
   });

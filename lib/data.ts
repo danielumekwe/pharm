@@ -1,16 +1,20 @@
 import { verifyPassword } from "@/lib/password";
 import { DATA_VERSION } from "@/lib/data-version";
+import { guardWorkingSet } from "@/lib/working-set";
 import type { PackagingLevel, ProductBarcode } from "@/lib/erp/packaging";
 import type { Role } from "@/lib/rbac";
 
 export type { Role } from "@/lib/rbac";
 
-/** Keeps in-memory demo data on globalThis so every route bundle shares one copy. */
-function persist<T>(key: string, seed: T): T {
+/**
+ * Keeps the working set on globalThis so every route bundle shares one copy. Callers get a guarded view:
+ * it holds one tenant's data during that tenant's transaction only (see lib/working-set.ts).
+ */
+function persist<T extends object>(key: string, seed: T): T {
   const registry = globalThis as typeof globalThis & Record<string, unknown>;
   const slot = `__pharm_v${DATA_VERSION}_${key}`;
   if (!registry[slot]) registry[slot] = seed;
-  return registry[slot] as T;
+  return guardWorkingSet(registry[slot] as T);
 }
 
 
@@ -35,7 +39,8 @@ export type User = {
   grants?: string[];
   lastLogin?: string;
   createdAt?: string;
-  invite?: { token: string; expiresAt: string } | null;
+  /** tenantId: the pharmacy that sent the invitation (absent on invitations issued before multi-tenancy). */
+  invite?: { token: string; expiresAt: string; tenantId?: string } | null;
 };
 
 export type Outlet = {

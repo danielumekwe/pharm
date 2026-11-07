@@ -19,6 +19,7 @@ import {
 import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor, HeldSale, SaleInvoice } from "@/lib/erp/types";
 import { can, isOutletScoped } from "@/lib/rbac";
+import { newId } from "@/lib/erp/ids";
 
 /** Outlets where the actor may sell: their active outlet, or (central roles) any retail outlet. */
 export function posOutlets(actor: Actor) {
@@ -101,7 +102,7 @@ export function saveHeldSale(actor: Actor, input: HeldInput) {
     return existing;
   }
   const held: HeldSale = {
-    id: `held-${Date.now().toString(36)}-${nextNumber("held")}`,
+    id: newId("held", `${Date.now().toString(36)}-${nextNumber("held")}`),
     reference: `${input.kind === "DRAFT" ? "DRF" : "HLD"}-${String(nextNumber("heldRef")).padStart(5, "0")}`,
     kind: input.kind,
     outletId: input.outletId,

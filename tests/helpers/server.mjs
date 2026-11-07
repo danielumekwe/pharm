@@ -36,6 +36,8 @@ export async function startServer(extraEnv = {}) {
   for (const name of readdirSync(migrationsDir).filter((entry) => !entry.endsWith(".toml")).sort()) {
     await queryClient.query(readFileSync(path.join(migrationsDir, name, "migration.sql"), "utf8"));
   }
+  // The app runs as the restricted role, so Row Level Security applies to every query it makes in tests.
+  await queryClient.query(readFileSync(path.join(ROOT, "prisma", "sql", "app-role.sql"), "utf8"));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const appEnv = {
@@ -45,6 +47,8 @@ export async function startServer(extraEnv = {}) {
     NEXTAUTH_SECRET: "test-secret-not-for-production",
     EMAIL_TRANSPORT: "json",
     ALERT_SCHEDULER: "off",
+    DATABASE_APP_ROLE: "pharm_app",
+    RATE_LIMIT: "off", // tests sign in many times from one address; tests/tenant-isolation.test.mjs turns it on
     ...extraEnv,
   };
   // TEST_RUNTIME=worker runs the same tests against the OpenNext Worker inside workerd (`wrangler dev`),

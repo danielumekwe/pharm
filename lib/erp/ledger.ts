@@ -6,6 +6,7 @@ import { batches, products, type BatchRecord, type Product } from "@/lib/data";
 import { DomainError, isBatchBlocked, refreshProductStatus, requestPersist } from "@/lib/erp/services";
 import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor, StockLedgerEntry, StockLedgerType } from "@/lib/erp/types";
+import { newId } from "@/lib/erp/ids";
 
 export const INBOUND_TYPES: readonly StockLedgerType[] = ["OPENING", "RECEIVE", "SALE_RETURN", "SALE_VOID", "TRANSFER_IN", "ADJUSTMENT_IN"];
 
@@ -62,7 +63,7 @@ export function postStock(actor: Who, input: PostInput): StockLedgerEntry {
 
   const unit = input.unit ?? { name: baseUnitName(product), unitsPerPackage: 1 };
   const entry: StockLedgerEntry = {
-    id: `led-${nextNumber("ledger")}`,
+    id: newId("led", `${nextNumber("ledger")}`),
     reference: input.reference,
     at: new Date().toISOString(),
     type,
@@ -110,7 +111,7 @@ export function receiveIntoNewBatch(
   posting: Omit<PostInput, "product" | "batch">,
 ) {
   const batch: BatchRecord = {
-    id: `batch-${nextNumber("batch")}-${Date.now().toString(36)}`,
+    id: newId("batch", `${nextNumber("batch")}-${Date.now().toString(36)}`),
     batchNumber: batchInput.batchNumber,
     productId: product.id,
     productName: product.name,

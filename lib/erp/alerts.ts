@@ -21,6 +21,7 @@ import type { Actor, AlertType, AuditSeverity, InventoryAlert, NotificationDeliv
 import { sendEmail } from "@/lib/notify/email";
 import { sendPush } from "@/lib/notify/push";
 import { can, effectivePermissions, isOutletScoped, type Permission } from "@/lib/rbac";
+import { newId } from "@/lib/erp/ids";
 
 const SEVERITY_RANK: Record<AuditSeverity, number> = { info: 0, warning: 1, critical: 2 };
 /** Alert types everyone with alerts.view sees; expiry handling is for inventory/compliance roles. */
@@ -201,7 +202,7 @@ export function scanAlerts(now = Date.now()) {
       continue;
     }
     const alert: InventoryAlert = {
-      id: `alert-${nextNumber("alert")}`,
+      id: newId("alert", `${nextNumber("alert")}`),
       key: condition.key,
       type: condition.type,
       severity: condition.severity,
@@ -424,13 +425,13 @@ export function recipientsFor(alert: Pick<InventoryAlert, "type" | "outletId">):
 function logDelivery(entry: Omit<NotificationDelivery, "id" | "at">) {
   // Deliveries are retained (not truncated) while they still have retries pending.
   const store = getStore();
-  store.deliveries.unshift({ id: `dlv-${nextNumber("delivery")}`, at: new Date().toISOString(), ...entry });
+  store.deliveries.unshift({ id: newId("dlv", `${nextNumber("delivery")}`), at: new Date().toISOString(), ...entry });
   if (store.deliveries.length > 20000) store.deliveries.length = 20000;
 }
 
 function inApp(userId: string, message: { title: string; body: string; severity: AuditSeverity; link: string; alertId?: string }) {
   const store = getStore();
-  store.notifications.unshift({ id: `ntf-${nextNumber("notification")}`, userId, createdAt: new Date().toISOString(), ...message });
+  store.notifications.unshift({ id: newId("ntf", `${nextNumber("notification")}`), userId, createdAt: new Date().toISOString(), ...message });
   if (store.notifications.length > 5000) store.notifications.length = 5000;
 }
 
@@ -608,7 +609,7 @@ export function registerDevice(actor: Actor, token: string, platform: "android" 
     existing.lastSeenAt = stamp;
     return existing;
   }
-  const device = { id: `dev-${nextNumber("device")}`, userId: actor.id, token, platform, label, registeredAt: stamp, lastSeenAt: stamp };
+  const device = { id: newId("dev", `${nextNumber("device")}`), userId: actor.id, token, platform, label, registeredAt: stamp, lastSeenAt: stamp };
   store.devices.push(device);
   recordAudit(actor, { action: "devices.register", entity: "Device", entityId: device.id, summary: `${actor.name} registered a${platform === "android" ? "n Android" : ` ${platform}`} device for push notifications${label ? ` (${label})` : ""}` });
   return device;

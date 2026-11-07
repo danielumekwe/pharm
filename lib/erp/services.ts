@@ -30,6 +30,7 @@ import type {
   Supplier,
   TenderMethod,
 } from "@/lib/erp/types";
+import { newId } from "@/lib/erp/ids";
 
 const DAY = 1000 * 60 * 60 * 24;
 
@@ -116,7 +117,7 @@ export function recordAudit(
 ) {
   const store = getStore();
   const entry: AuditEvent = {
-    id: `aud-${nextNumber("audit")}`,
+    id: newId("aud", `${nextNumber("audit")}`),
     at: new Date().toISOString(),
     actorId: actor.id,
     actorName: actor.name,
@@ -382,7 +383,7 @@ export function createSale(actor: Actor, input: SaleInput) {
     });
 
     stockMovements.unshift({
-      id: `mov-${nextNumber("movement")}`,
+      id: newId("mov", `${nextNumber("movement")}`),
       reference: number,
       date: new Date().toISOString().slice(0, 10),
       type: "Issue",
@@ -414,7 +415,7 @@ export function createSale(actor: Actor, input: SaleInput) {
 
   const walkIn = input.walkIn && (input.walkIn.name?.trim() || input.walkIn.phone?.trim()) ? { name: input.walkIn.name?.trim() || undefined, phone: input.walkIn.phone?.trim() || undefined } : undefined;
   const sale: SaleInvoice = {
-    id: `sale-${Date.now()}${nextNumber("saleId")}`,
+    id: newId("sale", `${Date.now()}${nextNumber("saleId")}`),
     number,
     date: new Date().toISOString(),
     outletId: input.outletId,
@@ -449,7 +450,7 @@ export function createSale(actor: Actor, input: SaleInput) {
   const receipts = tenders ?? (amountPaid > 0 ? [{ method: (paymentMethod === "Credit" || paymentMethod === "HMO" ? "Transfer" : paymentMethod) as TenderMethod, amount: amountPaid }] : []);
   for (const tender of receipts) {
     store.payments.unshift({
-      id: `pay-${Date.now()}-${nextNumber("payment")}`,
+      id: newId("pay", `${Date.now()}-${nextNumber("payment")}`),
       reference: `RCT-${String(nextNumber("payment")).padStart(5, "0")}`,
       date: sale.date,
       direction: "IN",
@@ -549,7 +550,7 @@ export function voidSale(actor: Actor, saleId: string, reason: string) {
     }
 
     stockMovements.unshift({
-      id: `mov-${nextNumber("movement")}`,
+      id: newId("mov", `${nextNumber("movement")}`),
       reference: `VOID-${sale.number}`,
       date: new Date().toISOString().slice(0, 10),
       type: "Return",
@@ -569,7 +570,7 @@ export function voidSale(actor: Actor, saleId: string, reason: string) {
 
   if (sale.amountPaid > 0) {
     store.payments.unshift({
-      id: `pay-${Date.now()}`,
+      id: newId("pay", `${Date.now()}`),
       reference: `RFD-${String(nextNumber("payment")).padStart(5, "0")}`,
       date: new Date().toISOString(),
       direction: "OUT",
@@ -632,7 +633,7 @@ export function createPurchaseOrder(actor: Actor, input: PurchaseOrderInput) {
   });
 
   const order: PurchaseOrder = {
-    id: `po-${Date.now()}`,
+    id: newId("po", `${Date.now()}`),
     number: `PO-2026-${String(nextNumber("po")).padStart(4, "0")}`,
     supplierId: supplier.id,
     supplierName: supplier.name,
@@ -673,7 +674,7 @@ export type ReceiptLine = {
 export function cloneProductForOutlet(template: Product, outletId: string) {
   const copy: Product = {
     ...structuredClone(template),
-    id: `prod-${Date.now().toString(36)}-${outletId}`,
+    id: newId("prod", `${Date.now().toString(36)}-${outletId}`),
     stock: 0,
     status: template.status === "RESTRICTED" ? "RESTRICTED" : "LOW_STOCK",
     outletId,
@@ -803,7 +804,7 @@ function receiveGoods(actor: Actor, order: PurchaseOrder, receipt: ReceiptLine[]
     );
 
     stockMovements.unshift({
-      id: `mov-${nextNumber("movement")}`,
+      id: newId("mov", `${nextNumber("movement")}`),
       reference: grn,
       date: today,
       type: "Receive",
@@ -848,7 +849,7 @@ export function createCustomer(
   const outletId = isOutletScoped(actor.role) ? actor.outletId : input.outletId;
   const number = nextNumber("customer");
   const customer: Customer = {
-    id: `cus-${Date.now()}`,
+    id: newId("cus", `${Date.now()}`),
     code: `CUS-${String(number).padStart(4, "0")}`,
     name: input.name.trim(),
     type: input.type,
@@ -876,7 +877,7 @@ export function createSupplier(
   const number = nextNumber("supplier");
   const licensed = /^PCN\//i.test(input.pcnLicense.trim());
   const supplier: Supplier = {
-    id: `sup-${Date.now()}`,
+    id: newId("sup", `${Date.now()}`),
     code: `SUP-${String(number).padStart(4, "0")}`,
     name: input.name.trim(),
     contactPerson: input.contactPerson.trim() || "-",
@@ -992,7 +993,7 @@ export function recordPayment(actor: Actor, input: PaymentInput) {
   }
 
   const payment: Payment = {
-    id: `pay-${Date.now()}`,
+    id: newId("pay", `${Date.now()}`),
     reference: `${input.direction === "IN" ? "RCT" : "PV"}-${String(nextNumber("payment")).padStart(5, "0")}`,
     date: new Date().toISOString(),
     direction: input.partyType === "Customer" ? "IN" : "OUT",
@@ -1024,7 +1025,7 @@ export function createExpense(
   if (!(input.amount > 0)) throw new DomainError("Amount must be greater than zero.");
   if (input.description.trim().length < 3) throw new DomainError("Describe the expense.");
   const expense: Expense = {
-    id: `exp-${Date.now()}`,
+    id: newId("exp", `${Date.now()}`),
     reference: `EXP-${String(nextNumber("expense")).padStart(5, "0")}`,
     date: input.date || new Date().toISOString().slice(0, 10),
     category: input.category,
@@ -1059,7 +1060,7 @@ export function transitionExpense(actor: Actor, expenseId: string, action: "appr
     if (expense.status !== "Approved") throw new DomainError("Only approved expenses can be paid.");
     expense.status = "Paid";
     store.payments.unshift({
-      id: `pay-${Date.now()}`,
+      id: newId("pay", `${Date.now()}`),
       reference: `PV-${String(nextNumber("payment")).padStart(5, "0")}`,
       date: new Date().toISOString(),
       direction: "OUT",
@@ -1131,7 +1132,7 @@ export function requestStockMovement(actor: Actor, input: StockMovementRequest) 
 
   const prefix = { Transfer: "TRF", Adjustment: "ADJ", Return: "RTN", Issue: "ISS", Receive: "GRN" }[input.type];
   const movement = addStockMovement({
-    id: `mov-${nextNumber("movement")}`,
+    id: newId("mov", `${nextNumber("movement")}`),
     reference: `${prefix}-${Date.now().toString().slice(-5)}`,
     type: input.type,
     outletId: product.outletId,

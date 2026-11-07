@@ -39,7 +39,7 @@ import { salesFeed } from "@/lib/erp/sales-feed";
 import type { Actor } from "@/lib/erp/types";
 import { compactMoney, dateTime, money, shortDate } from "@/lib/format";
 import { can, ROLE_LABELS } from "@/lib/rbac";
-import { requirePage } from "@/lib/session";
+import { pageData } from "@/lib/session";
 
 type Data<K extends Dashboard["kind"]> = Extract<Dashboard, { kind: K }>["data"];
 type Search = Promise<Record<string, string | string[] | undefined>>;
@@ -48,36 +48,39 @@ const first = (value: string | string[] | undefined) => (Array.isArray(value) ? 
 const statusTone = (status: string) => (status === "Paid" || status === "Received" ? "green" : status === "Voided" || status === "Rejected" ? "rose" : status.includes("Pending") || status === "Partially paid" ? "amber" : "blue");
 
 export default async function DashboardPage({ searchParams }: { searchParams: Search }) {
-  const actor = await requirePage("dashboard.view", "/dashboard");
-  const params = await searchParams;
-  const trend = first(params.trend);
-  const dashboard = buildDashboard(actor, {
-    from: first(params.from),
-    to: first(params.to),
-    outlet: first(params.outlet),
-    trend: trend === "weekly" || trend === "monthly" || trend === "yearly" ? trend : "daily",
-  });
-  const greeting = `Welcome, ${actor.name.split(" ")[0]}`;
+  return pageData("dashboard.view", "/dashboard", async (actor) => {
+    const params = await searchParams;
+    const trend = first(params.trend);
+    const dashboard = buildDashboard(actor, {
+      from: first(params.from),
+      to: first(params.to),
+      outlet: first(params.outlet),
+      trend: trend === "weekly" || trend === "monthly" || trend === "yearly" ? trend : "daily",
+    });
+    const greeting = `Welcome, ${actor.name.split(" ")[0]}`;
+    // Read inside the page's transaction; the views below render later and only get plain values.
+    const feed = dashboard.kind === "sales" || dashboard.kind === "admin" ? salesFeed(actor) : null;
 
-  return (
-    <DashboardShell>
-      <div className="space-y-6" data-dashboard={dashboard.kind}>
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">{ROLE_LABELS[actor.role]} dashboard</p>
-            <h1 className="mt-1 text-2xl font-bold text-white">{greeting}</h1>
+    return (
+      <DashboardShell>
+        <div className="space-y-6" data-dashboard={dashboard.kind}>
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">{ROLE_LABELS[actor.role]} dashboard</p>
+              <h1 className="mt-1 text-2xl font-bold text-white">{greeting}</h1>
+            </div>
+            <p className="text-sm text-slate-400">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" })}</p>
           </div>
-          <p className="text-sm text-slate-400">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" })}</p>
+          {dashboard.kind === "sales" && feed ? <SalesView actor={actor} data={dashboard.data} feed={feed} /> : null}
+          {dashboard.kind === "cashier" ? <CashierView data={dashboard.data} /> : null}
+          {dashboard.kind === "inventory" ? <InventoryView actor={actor} data={dashboard.data} /> : null}
+          {dashboard.kind === "manager" ? <ManagerView actor={actor} data={dashboard.data} /> : null}
+          {dashboard.kind === "admin" && feed ? <AdminView actor={actor} data={dashboard.data} feed={feed} /> : null}
+          {dashboard.kind === "regulatory" ? <RegulatoryView data={dashboard.data} /> : null}
         </div>
-        {dashboard.kind === "sales" ? <SalesView actor={actor} data={dashboard.data} /> : null}
-        {dashboard.kind === "cashier" ? <CashierView data={dashboard.data} /> : null}
-        {dashboard.kind === "inventory" ? <InventoryView actor={actor} data={dashboard.data} /> : null}
-        {dashboard.kind === "manager" ? <ManagerView actor={actor} data={dashboard.data} /> : null}
-        {dashboard.kind === "admin" ? <AdminView actor={actor} data={dashboard.data} /> : null}
-        {dashboard.kind === "regulatory" ? <RegulatoryView data={dashboard.data} /> : null}
-      </div>
-    </DashboardShell>
-  );
+      </DashboardShell>
+    );
+  });
 }
 
 // ---------------------------------------------------------------- shared tables
@@ -161,7 +164,9 @@ function TransferList({ data }: { data: Data<"inventory">["transfers"] }) {
 
 // ---------------------------------------------------------------- Sales manager
 
-function SalesView({ actor, data }: { actor: Actor; data: Data<"sales"> }) {
+type Feed = ReturnType<typeof salesFeed>;
+
+function SalesView({ actor, data, feed }: { actor: Actor; data: Data<"sales">; feed: Feed }) {
   const today = data.today;
   return (
     <>
@@ -220,7 +225,7 @@ function SalesView({ actor, data }: { actor: Actor; data: Data<"sales"> }) {
         <Card title="Payment methods" description={data.paymentMixPeriod}><DonutChart data={data.paymentMix} /></Card>
       </div>
       <Card title="Recent sales" action={<CardLink href="/sales">Sales history</CardLink>}><RecentSalesTable rows={data.recent} /></Card>
-      <LiveSalesFeed initial={salesFeed(actor)} />
+      <LiveSalesFeed initial={feed} />
     </>
   );
 }
@@ -400,7 +405,7 @@ function ManagerView({ actor, data }: { actor: Actor; data: Data<"manager"> }) {
 
 // ---------------------------------------------------------------- Super Admin
 
-function AdminView({ actor, data }: { actor: Actor; data: Data<"admin"> }) {
+function AdminView({ actor, data, feed }: { actor: Actor; data: Data<"admin">; feed: Feed }) {
   const t = data.totals;
   const p = data.position;
   const scopeLabel = data.filters.outlet === "all" ? "All outlets" : data.outlets.find((row) => row.id === data.filters.outlet)?.name ?? data.filters.outlet;
@@ -462,7 +467,7 @@ function AdminView({ actor, data }: { actor: Actor; data: Data<"admin"> }) {
         <Card title="Near-expiry batches"><BatchList rows={p.expiring} empty="Nothing expiring soon." /></Card>
         <Card title="Pending transfers" action={<CardLink href="/transfers">Transfers</CardLink>}><TransferList data={data.transfers} /></Card>
       </div>
-      <LiveSalesFeed initial={salesFeed(actor)} />
+      <LiveSalesFeed initial={feed} />
     </>
   );
 }

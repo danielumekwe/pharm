@@ -34,6 +34,7 @@ import {
 import { getStore, nextNumber } from "@/lib/erp/store";
 import { REGISTRATION_STATUSES, type Actor, type PriceChange, type ProductCatalogLists, type RegistrationStatus } from "@/lib/erp/types";
 import { can, isOutletScoped } from "@/lib/rbac";
+import { newId } from "@/lib/erp/ids";
 
 const NAFDAC_PATTERN = /^[A-Z0-9]{2}-\d{4,6}$/;
 const LIFECYCLES = ["ACTIVE", "INACTIVE", "DISCONTINUED"] as const;
@@ -161,7 +162,7 @@ const PRICE_FIELDS = [
 function recordPrice(actor: Actor, product: Product, level: string, kind: PriceChange["kind"], oldValue: number | undefined, newValue: number | undefined) {
   if ((oldValue ?? null) === (newValue ?? null)) return;
   getStore().priceHistory.unshift({
-    id: `prc-${nextNumber("price")}`,
+    id: newId("prc", `${nextNumber("price")}`),
     at: new Date().toISOString(),
     productId: product.id,
     productName: product.name,
@@ -300,7 +301,7 @@ export function registerProduct(actor: Actor, input: RegistrationInput) {
   const minStock = Math.max(0, Math.floor(input.minStock ?? 0));
   if (input.maxStock !== undefined && input.maxStock > 0 && input.maxStock < minStock) throw new DomainError("Maximum stock cannot be below the reorder level.");
 
-  const productId = `prod-${Date.now().toString(36)}${nextNumber("product")}`;
+  const productId = newId("prod", `${Date.now().toString(36)}${nextNumber("product")}`);
   const packaging = wrapPackaging(() => buildPackaging(input.packaging, (index) => `${productId}-pk${index}`));
   if (!packaging.some((level) => level.sellable)) throw new DomainError("At least one packaging level must be sellable.");
   const pricing = resolvePricing(packaging, input.pricing);
@@ -399,7 +400,7 @@ export function registerProduct(actor: Actor, input: RegistrationInput) {
   const existing = store.registrations.find((row) => row.productName.toLowerCase() === name.toLowerCase());
   if (!existing) {
     store.registrations.push({
-      id: `reg-${Date.now().toString(36)}-${nextNumber("registration")}`,
+      id: newId("reg", `${Date.now().toString(36)}-${nextNumber("registration")}`),
       productName: name,
       genericName: product.genericName,
       manufacturer: product.manufacturer,

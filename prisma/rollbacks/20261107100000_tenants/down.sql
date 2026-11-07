@@ -21,10 +21,12 @@ BEGIN
     END IF;
 END $$;
 
--- Users created after the migration keep the role and staff ID held on their membership.
-UPDATE "users" u SET "staff_id" = m."staff_id"
+-- Since phase 2 the membership is where role, status, permission grants, default outlet and staff ID are
+-- kept; copy them back to the user rows the pre-tenancy code reads.
+UPDATE "users" u
+SET "role" = m."role", "status" = m."status", "grants" = m."grants", "outlet_id" = m."default_outlet_id", "staff_id" = m."staff_id"
 FROM "tenant_memberships" m
-WHERE m."user_id" = u."id" AND m."tenant_id" = 'tenant-demo' AND u."staff_id" IS DISTINCT FROM m."staff_id";
+WHERE m."user_id" = u."id" AND m."tenant_id" = 'tenant-demo';
 
 -- 7. Cross-record links
 DO $$

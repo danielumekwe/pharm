@@ -15,6 +15,8 @@ export type Actor = {
   permissions: Permission[];
   /** Present when a Super Administrator is acting as this user. */
   impersonation?: { sessionId: string; adminId: string; adminName: string; expiresAt: string };
+  /** The pharmacy (tenant) of the request; set by getActor from the verified session. */
+  tenantId?: string;
 };
 
 export type CustomerType = "Walk-in" | "Retail" | "Corporate" | "HMO" | "Clinic";
