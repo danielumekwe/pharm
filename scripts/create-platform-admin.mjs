@@ -14,7 +14,7 @@ const email = String(args.email ?? "").trim().toLowerCase();
 const name = String(args.name ?? "").trim();
 const role = String(args.role ?? "PLATFORM_SUPER_ADMIN");
 if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || name.length < 3) throw new Error("Pass --email and --name (at least 3 characters).");
-if (!["PLATFORM_SUPER_ADMIN", "PLATFORM_SUPPORT"].includes(role)) throw new Error("--role must be PLATFORM_SUPER_ADMIN or PLATFORM_SUPPORT.");
+if (!["PLATFORM_SUPER_ADMIN", "PLATFORM_SUPPORT", "BILLING_ADMIN", "TECHNICAL_ADMIN"].includes(role)) throw new Error("--role must be PLATFORM_SUPER_ADMIN, PLATFORM_SUPPORT, BILLING_ADMIN or TECHNICAL_ADMIN.");
 const generated = !process.env.PLATFORM_ADMIN_PASSWORD;
 const password = process.env.PLATFORM_ADMIN_PASSWORD ?? `${randomBytes(15).toString("base64url")}9a`;
 if (password.length < 12) throw new Error("PLATFORM_ADMIN_PASSWORD must be at least 12 characters.");

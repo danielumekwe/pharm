@@ -111,7 +111,7 @@ export async function prepareCheckout(actor: Actor, planId: string, cycle: Billi
     recordAudit(actor, { action: "billing.downgrade-scheduled", entity: "Subscription", entityId: tenantId, summary: `Scheduled a change to ${result.planName} (${cycle.toLowerCase()}) from ${result.effectiveAt.slice(0, 10)}` });
     return { kind: "scheduled" as const, quote: result };
   }
-  if (!billingProvider().configured()) throw new DomainError("Online payment is not set up yet. Contact Web365 to pay.", 503);
+  if (!(await billingProvider().configured())) throw new DomainError("Online payment is not set up yet. Contact Web365 to pay.", 503);
   const email = users.find((user) => user.id === actor.id)?.email;
   if (!email) throw new DomainError("Your account has no email address for the payment receipt.", 409);
   return { kind: "payment" as const, quote: result, tenantId, email, actor: { id: actor.id, name: actor.name } };

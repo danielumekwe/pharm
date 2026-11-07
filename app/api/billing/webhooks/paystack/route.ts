@@ -13,7 +13,7 @@ import { recordPlatformAudit } from "@/lib/platform/audit";
  */
 export async function POST(request: Request) {
   const raw = await request.text();
-  if (!paystack.verifyWebhook(raw, request.headers)) {
+  if (!(await paystack.verifyWebhook(raw, request.headers))) {
     await recordPlatformAudit({ id: null, name: "Paystack webhook", type: "system" }, { action: "billing.webhook-rejected", summary: "Webhook with a missing or wrong signature was rejected", severity: "warning" }).catch(() => undefined);
     return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
   }

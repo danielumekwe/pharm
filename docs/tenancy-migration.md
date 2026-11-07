@@ -168,3 +168,22 @@ Rehearsed on 8 November 2026 on the live-data copy, together with the Phase 5 mi
 4. Test with Paystack's test cards before switching to the live key.
 
 How a payment counts: the redirect back from Paystack and the webhook both call one function that verifies the transaction with Paystack's API (status, reference, amount and currency). It then applies it once, in one database transaction, and issues the invoice. A charge for an unknown reference, or for the wrong amount, is logged in the platform audit as critical for a manual check. On a pharmacy's platform page, pending payments can be re-checked with **Check with Paystack again**.
+
+## Phase 7A (Control Centre foundation)
+
+Migration `20261112090000_platform_settings` (rollback: `prisma/rollbacks/20261112090000_platform_settings/down.sql`, run before the Phase 6 rollback; it drops saved settings and their history):
+
+- `platform_settings`: secrets only as AES-256-GCM ciphertext.
+- `platform_settings_history`: masked, and append-only for the app.
+- `user_preferences`: each person's own preferences.
+- `integration_checks`: results of real connection tests.
+- `platform_job_runs`: background job runs.
+- Two new platform roles: `BILLING_ADMIN` and `TECHNICAL_ADMIN`.
+
+Re-run `prisma/sql/app-role.sql` afterwards. Rehearsed on 8 November 2026 on the live-data copy: counts and totals matched, there was no drift, and the rollback was lossless.
+
+Going live also needs:
+
+- [ ] `SETTINGS_ENCRYPTION_KEY`: at least 32 random characters, as a server secret (for example `openssl rand -base64 48`). Keep a copy in a password manager: without it, saved secrets cannot be read and must be entered again. Never commit it.
+- [ ] Payment keys: enter them on **Control Centre → Payment gateway** (stored encrypted, never shown again). Start in test mode, run **Test connection**, then switch to live. The environment variable `PAYSTACK_SECRET_KEY` remains a fallback, used only when the settings are not enabled.
+- [ ] The live Paystack key shared in chat on 8 November 2026 must be rolled in the Paystack dashboard before use.

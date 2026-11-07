@@ -53,6 +53,7 @@ for (const spec of TABLES) {
   if (spec.table === "users") {
     lines.push(`${pad("memberships", "TenantMembership[]")}`.trimEnd());
     lines.push(`${pad("authTokens", "AuthToken[]")}`.trimEnd());
+    lines.push(`${pad("preferences", "UserPreference?")}`.trimEnd());
   }
   if (spec.table === "outlets") {
     lines.push(`${pad("userAssignments", "UserOutlet[]")} @relation("user_outlets_outlet_id")`);
@@ -256,6 +257,68 @@ model Subscription {
 
   @@index([planId])
   @@map("subscriptions")
+}`);
+
+models.push(`/// Platform-wide settings (Web365). Secrets only as AES-256-GCM ciphertext; never in "value".
+model PlatformSetting {
+  key                      String         @id
+  value                    Json           @default("{}")
+  secretCiphertext         String?        @map("secret_ciphertext")
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy                String?        @map("updated_by")
+
+  @@map("platform_settings")
+}`);
+
+models.push(`/// Masked change history of platform settings; append-only for the application role.
+model PlatformSettingHistory {
+  id                       String         @id
+  key                      String
+  changedAt                DateTime       @default(now()) @map("changed_at") @db.Timestamptz(6)
+  changedBy                String?        @map("changed_by")
+  changedByName            String         @map("changed_by_name")
+  changes                  Json
+
+  @@index([key, changedAt(sort: Desc)], map: "platform_settings_history_key_idx")
+  @@map("platform_settings_history")
+}`);
+
+models.push(`/// A person's own preferences (third settings level).
+model UserPreference {
+  userId                   String         @id @map("user_id")
+  user                     User           @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  value                    Json           @default("{}")
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("user_preferences")
+}`);
+
+models.push(`/// Result of a real connection test (the source of every "connected" status).
+model IntegrationCheck {
+  id                       String         @id
+  integration              String
+  checkedAt                DateTime       @default(now()) @map("checked_at") @db.Timestamptz(6)
+  ok                       Boolean
+  detail                   String
+  checkedBy                String?        @map("checked_by")
+
+  @@index([integration, checkedAt(sort: Desc)], map: "integration_checks_integration_idx")
+  @@map("integration_checks")
+}`);
+
+models.push(`/// One background job run across all pharmacies.
+model PlatformJobRun {
+  id                       String         @id
+  job                      String
+  trigger                  String
+  startedAt                DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt               DateTime?      @map("finished_at") @db.Timestamptz(6)
+  pharmacies               Int            @default(0)
+  failed                   Int            @default(0)
+  detail                   String?
+
+  @@index([job, startedAt(sort: Desc)], map: "platform_job_runs_job_idx")
+  @@map("platform_job_runs")
 }`);
 
 models.push(`/// A subscription payment attempt. The amount is calculated on the server; applied only after verification.

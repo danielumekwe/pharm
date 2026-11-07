@@ -31,7 +31,7 @@ export function StaffManager({ staff, selfId }: { staff: Member[]; selfId: strin
       <form onSubmit={create} className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-4">
         <input required placeholder="Full name" className={`${inputClass} flex-1`} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
         <input required type="email" placeholder="Email" className={`${inputClass} flex-1`} value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
-        <select className={`${inputClass} w-56`} value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="PLATFORM_SUPPORT">Platform Support</option><option value="PLATFORM_SUPER_ADMIN">Platform Super Admin</option></select>
+        <select className={`${inputClass} w-56`} value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="PLATFORM_SUPPORT">Platform Support</option><option value="BILLING_ADMIN">Billing Administrator</option><option value="TECHNICAL_ADMIN">Technical Administrator</option><option value="PLATFORM_SUPER_ADMIN">Platform Super Admin</option></select>
         <button type="submit" className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white">Add</button>
       </form>
       {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}

@@ -9,8 +9,10 @@ import { PlatformSignOut } from "./platform-sign-out";
 /** Layout for Web365 platform administration: separate from the pharmacy app. */
 export function PlatformShell({ actor, children }: { actor: PlatformActor; children: ReactNode }) {
   const links = [
-    { href: "/platform", label: "Pharmacies", show: true },
+    { href: "/platform", label: "Dashboard", show: platformCan(actor, "dashboard.view") },
+    { href: "/platform/tenants", label: "Pharmacies", show: platformCan(actor, "tenants.view") },
     { href: "/platform/plans", label: "Plans", show: platformCan(actor, "plans.manage") },
+    { href: "/platform/settings/payments", label: "Payment gateway", show: platformCan(actor, "billing.manage") },
     { href: "/platform/audit", label: "Audit log", show: platformCan(actor, "audit.view") },
     { href: "/platform/staff", label: "Platform staff", show: platformCan(actor, "staff.manage") },
   ];

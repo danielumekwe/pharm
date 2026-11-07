@@ -31,11 +31,13 @@ export type WebhookEvent = { type: string; key: string; reference: string | null
 export interface PaymentProvider {
   readonly name: string;
   /** False when the provider's keys are not set: online payment is then unavailable. */
-  configured(): boolean;
+  configured(): Promise<boolean>;
   initialize(request: CheckoutRequest): Promise<{ checkoutUrl: string }>;
   verify(reference: string): Promise<VerifiedPayment>;
   /** Checks the webhook signature over the exact raw body. */
-  verifyWebhook(rawBody: string, headers: Headers): boolean;
+  verifyWebhook(rawBody: string, headers: Headers): Promise<boolean>;
+  /** A harmless read-only call proving the keys work (connection test). */
+  testConnection(): Promise<{ ok: boolean; detail: string }>;
   parseWebhook(rawBody: string): WebhookEvent;
 }
 

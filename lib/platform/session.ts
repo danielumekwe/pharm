@@ -15,14 +15,32 @@ export const PLATFORM_COOKIE = "pharm_platform";
 const SECRET = `${AUTH_SECRET}:web365-platform`;
 const MAX_AGE = 8 * 60 * 60; // one working day
 
-export type PlatformRole = "PLATFORM_SUPER_ADMIN" | "PLATFORM_SUPPORT";
-export type PlatformPermission = "tenants.view" | "tenants.manage" | "plans.manage" | "support.request" | "audit.view" | "staff.manage";
+export type PlatformRole = "PLATFORM_SUPER_ADMIN" | "PLATFORM_SUPPORT" | "BILLING_ADMIN" | "TECHNICAL_ADMIN";
+export type PlatformPermission =
+  | "dashboard.view"
+  | "tenants.view"
+  | "tenants.manage"
+  | "plans.manage"
+  | "billing.manage"
+  | "settings.manage"
+  | "support.request"
+  | "audit.view"
+  | "staff.manage";
+
 export type PlatformActor = { id: string; name: string; email: string; role: PlatformRole };
 
-export const PLATFORM_ROLE_LABELS: Record<PlatformRole, string> = { PLATFORM_SUPER_ADMIN: "Platform Super Admin", PLATFORM_SUPPORT: "Platform Support" };
+export const PLATFORM_ROLE_LABELS: Record<PlatformRole, string> = {
+  PLATFORM_SUPER_ADMIN: "Platform Super Admin",
+  PLATFORM_SUPPORT: "Platform Support",
+  BILLING_ADMIN: "Billing Administrator",
+  TECHNICAL_ADMIN: "Technical Administrator",
+};
+/** Least privilege: each role gets only what its job needs. */
 const ROLE_PERMISSIONS: Record<PlatformRole, PlatformPermission[]> = {
-  PLATFORM_SUPER_ADMIN: ["tenants.view", "tenants.manage", "plans.manage", "support.request", "audit.view", "staff.manage"],
-  PLATFORM_SUPPORT: ["tenants.view", "support.request", "audit.view"],
+  PLATFORM_SUPER_ADMIN: ["dashboard.view", "tenants.view", "tenants.manage", "plans.manage", "billing.manage", "settings.manage", "support.request", "audit.view", "staff.manage"],
+  PLATFORM_SUPPORT: ["dashboard.view", "tenants.view", "support.request", "audit.view"],
+  BILLING_ADMIN: ["dashboard.view", "tenants.view", "plans.manage", "billing.manage", "audit.view"],
+  TECHNICAL_ADMIN: ["dashboard.view", "tenants.view", "settings.manage", "audit.view"],
 };
 
 export function platformCan(actor: PlatformActor, permission: PlatformPermission) {

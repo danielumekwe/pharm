@@ -2,10 +2,11 @@
 // PAYSTACK_BASE_URL overrides the API address (tests use a local stand-in).
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { paystackConfig } from "@/lib/billing/config";
 import { PaymentProviderError, type CheckoutRequest, type PaymentProvider, type VerifiedPayment, type WebhookEvent } from "@/lib/billing/provider";
 
 const baseUrl = () => (process.env.PAYSTACK_BASE_URL || "https://api.paystack.co").replace(/\/$/, "");
-const secret = () => process.env.PAYSTACK_SECRET_KEY ?? "";
+const secret = async () => (await paystackConfig()).secretKey;
 
 type Envelope<T> = { status: boolean; message?: string; data?: T };
 
@@ -14,7 +15,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     response = await fetch(`${baseUrl()}${path}`, {
       ...init,
-      headers: { Authorization: `Bearer ${secret()}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
+      headers: { Authorization: `Bearer ${await secret()}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
       signal: AbortSignal.timeout(20_000),
     });
   } catch (error) {
@@ -47,7 +48,7 @@ function normaliseStatus(status: string): VerifiedPayment["status"] {
 
 export const paystack: PaymentProvider = {
   name: "paystack",
-  configured: () => /^sk_(test|live)_/.test(secret()),
+  configured: async () => /^sk_(test|live)_/.test(await secret()),
 
   async initialize(request: CheckoutRequest) {
     const data = await call<{ authorization_url: string; reference: string }>("/transaction/initialize", {
@@ -84,11 +85,24 @@ export const paystack: PaymentProvider = {
     };
   },
 
-  verifyWebhook(rawBody: string, headers: Headers) {
+  async verifyWebhook(rawBody: string, headers: Headers) {
+    // Paystack signs webhooks with the account's secret key (it has no separate webhook secret).
     const signature = headers.get("x-paystack-signature") ?? "";
-    if (!secret() || !/^[a-f0-9]{128}$/.test(signature)) return false;
-    const expected = createHmac("sha512", secret()).update(rawBody).digest("hex");
+    const key = await secret();
+    if (!key || !/^[a-f0-9]{128}$/.test(signature)) return false;
+    const expected = createHmac("sha512", key).update(rawBody).digest("hex");
     return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(signature, "hex"));
+  },
+
+  async testConnection() {
+    if (!(await this.configured())) return { ok: false, detail: "No secret key is configured." };
+    try {
+      await call<unknown>("/transaction?perPage=1"); // read-only: lists at most one transaction
+      const { mode, source } = await paystackConfig();
+      return { ok: true, detail: `Connected in ${mode} mode (keys from ${source}).` };
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : "Connection failed." };
+    }
   },
 
   parseWebhook(rawBody: string): WebhookEvent {

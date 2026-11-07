@@ -36,3 +36,11 @@ BEGIN
         REVOKE DELETE, TRUNCATE ON "invoices", "billing_payments", "webhook_events" FROM pharm_app;
     END IF;
 END $$;
+
+-- Settings change history is append-only for the application.
+DO $$
+BEGIN
+    IF to_regclass('platform_settings_history') IS NOT NULL THEN
+        REVOKE UPDATE, DELETE, TRUNCATE ON "platform_settings_history" FROM pharm_app;
+    END IF;
+END $$;

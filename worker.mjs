@@ -9,7 +9,7 @@ const worker = {
   scheduled(_controller, env, ctx) {
     // Every active pharmacy in turn, each in its own tenant transaction.
     ctx.waitUntil(
-      forEachTenant(() => schedulerTick(), env.HYPERDRIVE.connectionString).catch((error) => {
+      forEachTenant(() => schedulerTick(), env.HYPERDRIVE.connectionString, { name: "alert-jobs", trigger: "worker-cron" }).catch((error) => {
         console.error("[alerts] scheduled job failed", error);
         throw error;
       }),

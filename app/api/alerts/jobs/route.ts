@@ -31,7 +31,7 @@ function secretMatches(provided: string | null) {
 export async function GET(request: Request) {
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
   if (!secretMatches(bearer)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  const results = await forEachTenant(() => schedulerTick());
+  const results = await forEachTenant(() => schedulerTick(), undefined, { name: "alert-jobs", trigger: "cron" });
   return NextResponse.json({ ok: results.every((entry) => entry.ok), pharmacies: results.length, failed: results.filter((entry) => !entry.ok).map((entry) => entry.tenantId), ranAt: new Date().toISOString() });
 }
 
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     const body = schema.safeParse(await request.json().catch(() => ({})));
     if (!body.success) return NextResponse.json({ error: "Invalid job." }, { status: 400 });
     const job = body.data.job;
-    return NextResponse.json({ job, results: await forEachTenant(() => run(job)) });
+    return NextResponse.json({ job, results: await forEachTenant(() => run(job), undefined, { name: `alert-${job}`, trigger: "external" }) });
   }
   return guarded("reports.consolidated", async (actor) => run(schema.parse(await request.json()).job, actor));
 }

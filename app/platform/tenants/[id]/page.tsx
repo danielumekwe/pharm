@@ -27,7 +27,7 @@ export default async function PlatformTenantPage({ params }: { params: Promise<{
   ];
   return (
     <PlatformShell actor={actor}>
-      <Link href="/platform" className="text-sm text-green-700 hover:underline">← Pharmacies</Link>
+      <Link href="/platform/tenants" className="text-sm text-green-700 hover:underline">← Pharmacies</Link>
       <h1 className="mt-2 text-2xl font-bold" data-tenant-name>{tenant.name}</h1>
       <dl className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 sm:grid-cols-2">
         {facts.map(([label, value]) => <div key={label}><dt className="text-xs uppercase tracking-[0.1em] text-slate-500">{label}</dt><dd className="font-medium text-slate-900">{value}</dd></div>)}

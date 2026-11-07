@@ -11,7 +11,7 @@ import type { PlatformActor } from "@/lib/platform/session";
 export const staffSchema = z.object({
   name: z.string().trim().min(3).max(120),
   email: z.string().trim().toLowerCase().email().max(160),
-  role: z.enum(["PLATFORM_SUPER_ADMIN", "PLATFORM_SUPPORT"]),
+  role: z.enum(["PLATFORM_SUPER_ADMIN", "PLATFORM_SUPPORT", "BILLING_ADMIN", "TECHNICAL_ADMIN"]),
 });
 
 export async function listStaff() {
