@@ -16,7 +16,7 @@ const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "1";
 
 
 const demoAccounts = [
-  { role: "Super Administrator", email: "admin@web365.ng", outletId: HEAD_OFFICE },
+  { role: "Pharmacy Super Admin", email: "admin@web365.ng", outletId: HEAD_OFFICE },
   { role: "Pharmacy Manager", email: "manager@web365.ng", outletId: HEAD_OFFICE },
   { role: "Regulatory Affairs", email: "regulatory@web365.ng", outletId: HEAD_OFFICE },
   { role: "Sales Manager · Lekki", email: "outlet@web365.ng", outletId: "outlet-1" },

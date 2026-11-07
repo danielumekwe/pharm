@@ -1,4 +1,4 @@
-// Super Administrator "login as user". Sessions live server-side (database); the browser session
+// Pharmacy Super Admin "login as user". Sessions live server-side (database); the browser session
 // only carries a session id, which is re-validated on every request.
 
 import { findUserByCredentials, users } from "@/lib/data";
@@ -40,9 +40,9 @@ export function activeImpersonation(sessionId: string | null | undefined) {
   let problem: string | null = null;
   if (!impersonation.enabled && impersonation.onDisable === "terminate") problem = "feature disabled";
   else if (Date.parse(session.expiresAt) <= Date.now()) problem = "time limit reached";
-  else if (!admin || admin.role !== "SUPER_ADMIN" || (admin.status ?? "ACTIVE") !== "ACTIVE") problem = "administrator no longer an active Super Administrator";
+  else if (!admin || admin.role !== "SUPER_ADMIN" || (admin.status ?? "ACTIVE") !== "ACTIVE") problem = "administrator no longer an active Pharmacy Super Admin";
   else if (!target || (target.status ?? "ACTIVE") !== "ACTIVE") problem = "target account no longer active";
-  else if (target.role === "SUPER_ADMIN") problem = "target became a Super Administrator";
+  else if (target.role === "SUPER_ADMIN") problem = "target became a Pharmacy Super Admin";
   if (problem) {
     endSession(session, problem);
     return null;
@@ -53,7 +53,7 @@ export function activeImpersonation(sessionId: string | null | undefined) {
 export async function startImpersonation(admin: Actor, input: { targetUserId: string; password: string; reason: string }) {
   const store = getStore();
   if (admin.impersonation) throw new DomainError("Return to your own account before switching to another user.", 403);
-  if (admin.role !== "SUPER_ADMIN") throw new DomainError("Only the Super Administrator can switch user.", 403);
+  if (admin.role !== "SUPER_ADMIN") throw new DomainError("Only the Pharmacy Super Admin can switch user.", 403);
   if (!store.settings.impersonation.enabled) throw new DomainError("User impersonation is disabled in System settings.", 403);
 
   const adminRecord = users.find((user) => user.id === admin.id);
@@ -67,7 +67,7 @@ export async function startImpersonation(admin: Actor, input: { targetUserId: st
   const target = users.find((user) => user.id === input.targetUserId);
   if (!target) throw new DomainError("User not found.", 404);
   if (target.id === admin.id) throw new DomainError("You cannot impersonate yourself.");
-  if (target.role === "SUPER_ADMIN") throw new DomainError("Super Administrator accounts cannot be impersonated.", 403);
+  if (target.role === "SUPER_ADMIN") throw new DomainError("Pharmacy Super Admin accounts cannot be impersonated.", 403);
   if ((target.status ?? "ACTIVE") !== "ACTIVE") throw new DomainError(`${target.name}'s account is ${String(target.status).toLowerCase()} and cannot be used.`);
   if (input.reason.trim().length < 5) throw new DomainError("Give a reason for switching user (recorded in the audit trail).");
 
@@ -104,7 +104,7 @@ export function stopImpersonation(actor: Actor) {
   if (!actor.impersonation) throw new DomainError("You are not impersonating anyone.");
   const session = getStore().impersonations.find((row) => row.id === actor.impersonation!.sessionId);
   if (!session) throw new DomainError("Session not found.", 404);
-  endSession(session, "returned to Super Administrator", { id: actor.impersonation.adminId, name: actor.impersonation.adminName, role: "SUPER_ADMIN" });
+  endSession(session, "returned to Pharmacy Super Admin", { id: actor.impersonation.adminId, name: actor.impersonation.adminName, role: "SUPER_ADMIN" });
   return { ok: true };
 }
 

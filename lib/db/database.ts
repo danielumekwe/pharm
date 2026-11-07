@@ -24,7 +24,9 @@ type Registry = typeof globalThis & Record<string, unknown> & {
 };
 /** The tenant a transaction runs for (null: an anonymous request, which sees no tenant data). */
 export type TenantInfo = { id: string; name: string; status: string; isDemo: boolean };
-type TenantContext = { tenantId: string | null; tenant: TenantInfo | null };
+/** "refuse": a change fails the request (API actions). "discard": incidental changes are dropped (page views). */
+type ReadOnlyMode = "refuse" | "discard";
+type TenantContext = { tenantId: string | null; tenant: TenantInfo | null; readOnly?: ReadOnlyMode };
 type Transaction = Prisma.TransactionClient;
 type Collections = {
   tables: Record<string, Row[]>;
@@ -168,6 +170,24 @@ async function setTenantScope(tx: Pick<PrismaClient, "$queryRawUnsafe" | "$execu
   await tx.$queryRawUnsafe(`SELECT set_config('app.tenant_id', $1, true)`, tenantId ?? "");
 }
 
+export class ReadOnlyError extends Error {
+  status = 403;
+  constructor() {
+    super("Read-only access: this session cannot change the pharmacy's records.");
+    this.name = "ReadOnlyError";
+  }
+}
+
+/**
+ * Marks the running transaction read-only (Web365 support sessions): saving any change other than audit
+ * entries (and the counters their IDs use) fails and the whole request is rolled back.
+ */
+export function markTransactionReadOnly(mode: ReadOnlyMode = "refuse") {
+  const context = txTenant.getStore();
+  if (!context) throw new Error("No transaction to mark read-only.");
+  context.readOnly = mode;
+}
+
 /** The tenant of the transaction currently running, or null outside a transaction or for anonymous requests. */
 export function currentTenant(): TenantInfo | null {
   return txTenant.getStore()?.tenant ?? null;
@@ -252,14 +272,15 @@ class PharmDb {
         await internal(() => this.load(tx, tenantId));
         before = snapshotCollections();
         const pending: Promise<unknown>[] = [];
-        const result = await runInTenant(tenantId, () => txTenant.run({ tenantId, tenant }, () => transactions.run(tx, () => rollbackActions.run(actions, () => pendingWork.run(pending, async () => {
+        const context: TenantContext = { tenantId, tenant };
+        const result = await runInTenant(tenantId, () => txTenant.run(context, () => transactions.run(tx, () => rollbackActions.run(actions, () => pendingWork.run(pending, async () => {
           const value = await callback(tx);
           // Side effects started during the request (e.g. alert notifications) finish before commit,
           // so their records are saved and Workers do not cancel them after the response.
           while (pending.length) await Promise.allSettled(pending.splice(0));
           return value;
         })))));
-        await internal(() => this.flush(tx, tenantId));
+        await internal(() => this.flush(tx, tenantId, context.readOnly));
         return result;
         },
         { maxWait: 10_000, timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
@@ -403,7 +424,9 @@ class PharmDb {
     await this.insertRows(tx, `INSERT INTO ${child.table} (${columns.join(", ")})`, "", rows);
   }
 
-  private async flushTable(tx: Transaction, spec: TableSpec, items: Row[], tenantId: string | null) {
+  private async flushTable(tx: Transaction, spec: TableSpec, items: Row[], tenantId: string | null, readOnly?: ReadOnlyMode) {
+    // Read-only page views drop incidental changes (the next transaction reloads from the database).
+    if (readOnly === "discard" && spec.table !== "audit_events") return 0;
     const tenantOwned = !isUserScoped(spec);
     const snapshot = this.snapshots.get(spec.table) ?? new Map<string, string>();
     const sequences = this.sequences.get(spec.table) ?? new Map<string, number>();
@@ -440,6 +463,7 @@ class PharmDb {
       if (upserts.length || removed.length) throw new TenantRequiredError("[db] refusing to save changes without a pharmacy account.");
       return 0;
     }
+    if (readOnly === "refuse" && spec.table !== "audit_events" && (upserts.length || removed.length)) throw new ReadOnlyError();
     if (tenantOwned) {
       // tenant_id is stamped here, never taken from the record. An id that already belongs to another
       // tenant is not overwritten (the WHERE clause skips it) and the whole request is rolled back.
@@ -541,14 +565,14 @@ class PharmDb {
     return changed;
   }
 
-  async flush(tx: Transaction, tenantId: string | null = txTenant.getStore()?.tenantId ?? null) {
+  async flush(tx: Transaction, tenantId: string | null = txTenant.getStore()?.tenantId ?? null, readOnly: ReadOnlyMode | undefined = txTenant.getStore()?.readOnly) {
     const collections = snapshotCollections();
     if (!collections) return 0;
     const started = performance.now();
     let changed = 0;
-    for (const spec of TABLES) changed += await this.flushTable(tx, spec, collections.tables[spec.table] ?? [], tenantId);
-    // Anonymous requests keep default settings in memory only.
-    if (tenantId) changed += await this.flushKv(tx, collections.kv, tenantId);
+    for (const spec of TABLES) changed += await this.flushTable(tx, spec, collections.tables[spec.table] ?? [], tenantId, readOnly);
+    // Anonymous requests keep default settings in memory only; read-only sessions may only advance counters.
+    if (tenantId) changed += await this.flushKv(tx, readOnly ? { counters: collections.kv.counters } : collections.kv, tenantId);
     this.lastFlush = { at: new Date().toISOString(), changed, ms: Math.round(performance.now() - started) };
     return changed;
   }
@@ -745,11 +769,13 @@ export function inDatabaseTransaction() {
 }
 
 /** Platform-level lookups outside any tenant's working set (see PharmDb.platform). */
-export async function platformQuery<T>(run: Parameters<PharmDb["platform"]>[0]): Promise<T> {
+export type PlatformQuery = <R = Row>(sql: string, params?: unknown[], tenantId?: string | null) => Promise<R[]>;
+
+export async function platformQuery<T>(run: (query: PlatformQuery) => Promise<T>): Promise<T> {
   await initDatabase();
   const database = getDb();
   if (!database) throw new Error("Database failed to initialize.");
-  return database.platform(run) as Promise<T>;
+  return database.platform(run);
 }
 
 export function getDb() {

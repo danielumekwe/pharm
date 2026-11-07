@@ -158,3 +158,41 @@ export async function sharedWithOtherPharmacies(userId: string, tenantId: string
   );
   return rows.length > 0;
 }
+
+type GlobalUserRow = {
+  id: string; name: string; email: string; phone: string | null; password: string | null; password_hash: string | null; last_login: string | null;
+  created_at: string | null; invite: string | null; email_verified_at: string | null; password_changed_at: string | null; role: string; staff_id: string | null;
+};
+
+/**
+ * An existing account's global fields, exactly as stored, so adding the person to another pharmacy rewrites
+ * nothing about their account (name, password, confirmation).
+ */
+export async function existingAccount(email: string) {
+  const [row] = await platformQuery<GlobalUserRow[]>((query) =>
+    query<GlobalUserRow>(`SELECT id, name, email, phone, password, password_hash, last_login, created_at, invite, email_verified_at, password_changed_at, role, staff_id FROM users WHERE lower(email) = lower($1)`, [email.trim()]),
+  );
+  if (!row) return null;
+  return {
+    id: row.id, name: row.name, email: row.email, phone: row.phone ?? undefined, password: row.password ?? undefined, passwordHash: row.password_hash,
+    lastLogin: row.last_login ?? undefined, createdAt: row.created_at ?? undefined, invite: row.invite ? JSON.parse(row.invite) : null,
+    emailVerifiedAt: row.email_verified_at ?? undefined, passwordChangedAt: row.password_changed_at ?? undefined,
+  };
+}
+
+/** Suspended pharmacies the accounts belong to, with the reason shown to their users. */
+export async function suspendedPharmaciesFor(userIds: string[]) {
+  if (!userIds.length) return [];
+  return platformQuery<Array<{ name: string; reason: string | null }>>((query) =>
+    query(
+      `SELECT DISTINCT t.name, t.status_reason AS reason FROM tenant_memberships m JOIN tenants t ON t.id = m.tenant_id
+       WHERE m.user_id = ANY($1::text[]) AND m.status = 'ACTIVE' AND t.status = 'SUSPENDED'`,
+      [userIds],
+    ),
+  );
+}
+
+export function suspendedMessage(pharmacies: Array<{ name: string; reason: string | null }>) {
+  const first = pharmacies[0];
+  return `${first.name} is suspended${first.reason ? `: ${first.reason}` : ""}. Contact Web365 support.`;
+}

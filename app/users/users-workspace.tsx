@@ -476,7 +476,7 @@ function StatusModal({ user, status, onClose }: { user: StaffRow; status: "SUSPE
   const [reason, setReason] = useState("");
   const copy = {
     SUSPENDED: { title: `Suspend ${user.name}`, body: "They are signed out on their next request and cannot sign in until reactivated.", button: "Suspend account" },
-    DEACTIVATED: { title: `Deactivate ${user.name}`, body: "Use when someone leaves. The account and its history are kept, but it cannot be used. Only a Super Administrator can reactivate it.", button: "Deactivate account" },
+    DEACTIVATED: { title: `Deactivate ${user.name}`, body: "Use when someone leaves. The account and its history are kept, but it cannot be used. Only a Pharmacy Super Admin can reactivate it.", button: "Deactivate account" },
     ACTIVE: { title: `Reactivate ${user.name}`, body: "The user can sign in again with their existing password.", button: "Reactivate" },
   }[status];
   return (
@@ -597,7 +597,7 @@ function SwitchUserModal({
               </li>
             ))}
           </ul>
-          <p className="text-xs text-slate-500">Super Administrator accounts and inactive accounts cannot be impersonated.</p>
+          <p className="text-xs text-slate-500">Pharmacy Super Admin accounts and inactive accounts cannot be impersonated.</p>
         </div>
       ) : (
         <div className="grid gap-3">

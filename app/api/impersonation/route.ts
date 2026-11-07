@@ -5,7 +5,7 @@ import { guarded } from "@/lib/session";
 
 const schema = z.object({ targetUserId: z.string().min(1), password: z.string().min(1).max(128), reason: z.string().max(200) });
 
-/** Start acting as another user. Requires the Super Administrator's password again (fresh authentication). */
+/** Start acting as another user. Requires the Pharmacy Super Admin's password again (fresh authentication). */
 export async function POST(request: Request) {
   return guarded("users.manage", async (actor) => startImpersonation(actor, schema.parse(await request.json())), 201);
 }

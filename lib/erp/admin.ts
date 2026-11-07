@@ -1,4 +1,4 @@
-// Super Administrator operations: outlets, role permissions and system settings.
+// Pharmacy Super Admin operations: outlets, role permissions and system settings.
 
 import { outlets, products, stockMovements, users, type Outlet } from "@/lib/data";
 import { documentStore } from "@/lib/erp/document-storage";
@@ -113,9 +113,9 @@ export function applyPermissionChanges(actor: Actor, changes: PermissionChange[]
     const role = change.role;
     const permission = change.permission;
     const label = `${PERMISSIONS[permission].label} for ${ROLE_LABELS[role]}`;
-    if (role === "SUPER_ADMIN") throw new DomainError("Super Administrator permissions cannot be reduced.");
+    if (role === "SUPER_ADMIN") throw new DomainError("Pharmacy Super Admin permissions cannot be reduced.");
     if (!change.granted && LOCKED_PERMISSIONS.includes(permission)) throw new DomainError(`${label} is required for every role.`);
-    if (change.granted && SUPER_ADMIN_ONLY.includes(permission)) throw new DomainError(`${PERMISSIONS[permission].label} is reserved for the Super Administrator.`);
+    if (change.granted && SUPER_ADMIN_ONLY.includes(permission)) throw new DomainError(`${PERMISSIONS[permission].label} is reserved for the Pharmacy Super Admin.`);
     if (change.granted && isOutletScoped(role) && CENTRAL_ONLY_PERMISSIONS.includes(permission)) {
       throw new DomainError(`${label}: outlet-level roles cannot hold central permissions.`);
     }

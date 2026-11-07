@@ -40,8 +40,9 @@ try {
   // Runs a query once per tenant scope when the table has RLS, and adds up the numeric results.
   async function scalar(table, sql) {
     if (!rlsTables.has(table)) return Number((await client.query(sql)).rows[0].value ?? 0);
-    // app_state shows the shared '_platform' rows in every tenant scope: count each scope's own rows once.
-    const scoped = table === "app_state" ? `${sql} WHERE tenant_id = current_setting('app.tenant_id', true)` : sql;
+    // Filter explicitly as well: a superuser (or table owner with BYPASSRLS) is not limited by the policies,
+    // and app_state shows the shared '_platform' rows in every scope. Each scope's own rows are counted once.
+    const scoped = `${sql} WHERE tenant_id = current_setting('app.tenant_id', true)`;
     let sum = 0;
     for (const tenantId of table === "app_state" ? [...tenantIds, "_platform"] : tenantIds) {
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);

@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     hit(`verify:ip:${await clientAddress()}`, 30, 15 * 60_000);
     const parsed = schema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
-    const userId = await consumeToken(parsed.data.token, "verify_email");
+    const userId = (await consumeToken(parsed.data.token, "verify_email"))?.userId;
     if (!userId) return NextResponse.json({ error: "This confirmation link is invalid, already used, or expired. Sign in to send a new one." }, { status: 400 });
     await platformQuery((query) => query(`UPDATE users SET email_verified_at = $1 WHERE id = $2 AND email_verified_at IS NULL`, [new Date().toISOString(), userId]));
     return NextResponse.json({ ok: true });

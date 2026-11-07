@@ -28,7 +28,7 @@ type OutletRow = {
 
 const empty: Omit<OutletRow, "id" | "staff" | "units"> = { name: "", code: "", type: "RETAIL", address: "", manager: "", phone: "", pcnLicense: "", licenceExpiry: "", status: "ACTIVE" };
 
-/** Super Administrator outlet register: create, edit and close outlets. */
+/** Pharmacy Super Admin outlet register: create, edit and close outlets. */
 export function OutletManager({ outlets }: { outlets: OutletRow[] }) {
   const [editing, setEditing] = useState<OutletRow | "new" | null>(null);
   const columns: Column<OutletRow>[] = [
@@ -42,7 +42,7 @@ export function OutletManager({ outlets }: { outlets: OutletRow[] }) {
     { key: "edit", header: "", render: (row) => <button type="button" aria-label={`Edit ${row.name}`} onClick={() => setEditing(row)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"><Pencil className="h-4 w-4" /></button> },
   ];
   return (
-    <Panel title="Outlet register" description="Super Administrator only. Closing an outlet requires zero stock and no pending movements; its staff lose access to it." actions={<ActionButton onClick={() => setEditing("new")}><PlusCircle className="h-4 w-4" /> New outlet</ActionButton>}>
+    <Panel title="Outlet register" description="Pharmacy Super Admin only. Closing an outlet requires zero stock and no pending movements; its staff lose access to it." actions={<ActionButton onClick={() => setEditing("new")}><PlusCircle className="h-4 w-4" /> New outlet</ActionButton>}>
       <DataTable rows={outlets} columns={columns} rowKey={(row) => row.id} exportName="outlets" dense />
       {editing ? <OutletModal outlet={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
     </Panel>

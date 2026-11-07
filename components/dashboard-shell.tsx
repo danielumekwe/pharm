@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { Bell, Building2, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldAlert, Store, UserCog, X } from "lucide-react";
 import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
@@ -58,6 +58,20 @@ function AccessDeniedNotice() {
 }
 
 /** Persistent, non-dismissable banner while a Super Administrator is acting as another user. */
+/** Shown during a read-only Web365 support session approved by the pharmacy. */
+function SupportBanner() {
+  const { data: session } = useSession();
+  const support = session?.user?.support;
+  if (!support) return null;
+  const until = new Date(support.expiresAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div role="status" data-support-banner className="flex flex-wrap items-center justify-center gap-3 bg-amber-500 px-4 py-2 text-sm font-medium text-slate-950 print:hidden">
+      <span>Web365 support ({support.agent}) · read-only access to {session.user.tenantName} until {until}</span>
+      <button type="button" onClick={() => void signOut({ callbackUrl: "/platform" })} className="rounded-md bg-slate-950/10 px-3 py-1 font-semibold hover:bg-slate-950/20">End support session</button>
+    </div>
+  );
+}
+
 export function ImpersonationBanner() {
   const { data: session, update } = useSession();
   const router = useRouter();
@@ -505,6 +519,7 @@ function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
+      <SupportBanner />
       <ImpersonationBanner />
       <div className="flex">
         {/* Desktop sidebar */}

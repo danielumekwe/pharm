@@ -11,6 +11,7 @@
     "db:backup": "node scripts/db-backup.mjs",
     "db:restore": "node scripts/db-restore.mjs",
     "db:verify-tenancy": "node scripts/tenancy-verify.mjs",
+    "platform:create-admin": "node scripts/create-platform-admin.mjs",
     "test": "node --test --test-concurrency=1 \"tests/**/*.test.mjs\"",
     "test:ci": "npm run build && npm test",
     "cf-build": "node scripts/check-deploy-env.mjs && node scripts/patch-pdfkit.mjs && prisma generate && opennextjs-cloudflare build",

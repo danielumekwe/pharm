@@ -25,6 +25,8 @@ declare module "next-auth" {
       tenantName: string | null;
       /** Pharmacies the account may switch to (active memberships). */
       pharmacies: { id: string; name: string }[];
+      /** Set for a read-only Web365 support session approved by the pharmacy. */
+      support: { grantId: string; expiresAt: string; agent: string } | null;
       /** Set while a Super Administrator is acting as this user. */
       impersonation: { sessionId: string; adminId: string; adminName: string; startedAt: string; expiresAt: string } | null;
     } & DefaultSession["user"];
@@ -42,6 +44,8 @@ declare module "next-auth/jwt" {
     tenantId?: string;
     /** When the user signed in (ms); sessions older than the last password change are refused. */
     signedInAt?: number;
+    /** A Web365 support session: the approved grant it runs under. */
+    supportGrantId?: string;
     /** Set once the session has been signed out by a password change. */
     revoked?: boolean;
   }

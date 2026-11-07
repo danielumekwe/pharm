@@ -106,3 +106,23 @@ Going live also needs:
 - [ ] SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `ALERT_EMAIL_FROM`). Without them, confirmation and reset emails are skipped: pharmacies can still register and use the app, but cannot confirm their email or reset a forgotten password themselves.
 - [ ] `NEXT_PUBLIC_DEMO_MODE=1` only on the demo deployment, to keep the demo-account shortcuts on the sign-in page. It is set at build time.
 - [ ] Re-run `prisma/sql/app-role.sql` after migrating, so `pharm_app` can use the new tables. It is safe to run again.
+
+## Phase 4 (platform administration)
+
+Migration `20261109090000_platform_admin` (rollback: `prisma/rollbacks/20261109090000_platform_admin/down.sql`; back up first, because it drops the platform audit trail):
+
+- `platform_users`: Web365 staff accounts, separate from pharmacy accounts. Roles are `PLATFORM_SUPER_ADMIN` and `PLATFORM_SUPPORT`.
+- `platform_audit_events`: append-only for `pharm_app` (re-run `prisma/sql/app-role.sql` after migrating, which revokes UPDATE and DELETE).
+- `support_access_grants`: support access that Web365 requests and the pharmacy approves, deny or revokes.
+- `tenants.status_reason` and `tenants.status_changed_at`: the suspension reason shown to the pharmacy's users.
+- `auth_tokens.tenant_id` and purpose `join_pharmacy`: invitations for existing accounts to join another pharmacy.
+
+Rehearsed on 8 November 2026 on the live-data copy: all counts and totals matched, there was no Prisma drift, the app role cannot edit or delete audit rows, the rollback was lossless, and re-applying worked.
+
+After migrating, create the first Platform Super Admin. The password is read from the environment and is never printed:
+
+```bash
+PLATFORM_ADMIN_PASSWORD='<12+ characters>' DIRECT_DATABASE_URL=<target> npm run platform:create-admin -- --email you@web365.ng --name "Your Name" [--confirm-remote]
+```
+
+Without `PLATFORM_ADMIN_PASSWORD`, a strong password is generated and printed once. Sign in at `/platform/login`. Further staff accounts are added from **Platform staff**.

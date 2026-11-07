@@ -14,7 +14,7 @@ export type Role =
 export const ROLES: Role[] = ["SUPER_ADMIN", "PHARMACY_MANAGER", "REGULATORY_OFFICER", "SALES_MANAGER", "STOCK_MANAGER", "CASHIER", "STAFF"];
 
 export const ROLE_LABELS: Record<Role, string> = {
-  SUPER_ADMIN: "Super Administrator",
+  SUPER_ADMIN: "Pharmacy Super Admin",
   PHARMACY_MANAGER: "Pharmacy Manager",
   REGULATORY_OFFICER: "Regulatory Affairs Officer",
   SALES_MANAGER: "Sales Manager",
@@ -24,7 +24,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
-  SUPER_ADMIN: "Full system access: outlets, users, roles, permissions and settings.",
+  SUPER_ADMIN: "Full control of this pharmacy: outlets, users, roles, permissions and settings. No access to other pharmacies or to the Web365 platform.",
   PHARMACY_MANAGER: "All outlets. Manages outlet managers and staff, consolidated reports and approvals.",
   REGULATORY_OFFICER: "All outlets. Product registrations, licences, regulatory documents and compliance.",
   SALES_MANAGER: "Assigned outlet. Sales, returns and cancellations, cashier supervision and sales reports.",

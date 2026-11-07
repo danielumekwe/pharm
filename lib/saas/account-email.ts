@@ -46,3 +46,41 @@ export async function sendPasswordResetEmail(account: Account): Promise<Delivery
     ].join("\n"),
   });
 }
+
+/** For accounts Web365 creates on a pharmacy's behalf: a 48-hour link to choose the first password. */
+export async function sendAccountSetupEmail(account: Account, pharmacy: string): Promise<DeliveryResult> {
+  const token = await issueToken(account.id, "reset_password", { lifetimeMs: 48 * 3_600_000 });
+  const link = `${appUrl()}/reset-password?token=${token}`;
+  return sendEmail({
+    to: account.email,
+    subject: `Your ${pharmacy} account is ready`,
+    text: [
+      `Hello ${account.name},`,
+      "",
+      `Web365 has set up ${pharmacy} on Pharmacy ERP with you as its Super Admin. Choose your password to sign in:`,
+      link,
+      "",
+      "The link works once and expires in 48 hours.",
+    ].join("\n"),
+  });
+}
+
+/** For people who already have an account: an invitation to also work for another pharmacy. */
+export async function sendJoinPharmacyEmail(account: Account, tenantId: string, pharmacy: string, role: string, invitedBy: string): Promise<DeliveryResult> {
+  const token = await issueToken(account.id, "join_pharmacy", { tenantId });
+  const link = `${appUrl()}/join?token=${token}`;
+  const days = TOKEN_LIFETIME_MS.join_pharmacy / 86_400_000;
+  return sendEmail({
+    to: account.email,
+    subject: `${invitedBy} invited you to ${pharmacy}`,
+    text: [
+      `Hello ${account.name},`,
+      "",
+      `${invitedBy} has added you to ${pharmacy} as ${role}. You keep your existing account and password.`,
+      `To accept, open this link (it works once and expires in ${days} days):`,
+      link,
+      "",
+      "Until you accept, you will not see this pharmacy when you sign in. If you were not expecting this, ignore the email.",
+    ].join("\n"),
+  });
+}

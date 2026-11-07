@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     // Check the new password first, so a weak one does not use up the link.
     const password = strongPassword.safeParse(parsed.data.password);
     if (!password.success) return NextResponse.json({ error: password.error.issues[0]?.message ?? "Choose a stronger password." }, { status: 422 });
-    const userId = await consumeToken(parsed.data.token, "reset_password");
+    const userId = (await consumeToken(parsed.data.token, "reset_password"))?.userId;
     if (!userId) return NextResponse.json({ error: "This reset link is invalid, already used, or expired. Ask for a new one." }, { status: 400 });
 
     const changedAt = new Date().toISOString();

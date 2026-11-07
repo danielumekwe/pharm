@@ -17,3 +17,11 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pharm_app
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO pharm_app;
 -- The login role may switch to pharm_app (needed on PostgreSQL 16+, where creating a role does not grant it).
 GRANT pharm_app TO CURRENT_USER;
+
+-- The platform audit trail is append-only for the application.
+DO $$
+BEGIN
+    IF to_regclass('platform_audit_events') IS NOT NULL THEN
+        REVOKE UPDATE, DELETE, TRUNCATE ON "platform_audit_events" FROM pharm_app;
+    END IF;
+END $$;

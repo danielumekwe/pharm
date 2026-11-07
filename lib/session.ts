@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { connection, NextResponse } from "next/server";
 
 import { auth, signedInBefore } from "@/lib/auth";
-import { currentTenant, flushDatabase, withDatabaseTransaction } from "@/lib/db/database";
+import { currentTenant, flushDatabase, markTransactionReadOnly, ReadOnlyError, withDatabaseTransaction } from "@/lib/db/database";
+import { supportActor } from "@/lib/platform/support";
 import { users } from "@/lib/data";
 import { actorFor } from "@/lib/erp/access";
 import { activeImpersonation } from "@/lib/erp/impersonation";
@@ -43,6 +44,11 @@ export async function getActor(): Promise<Actor | null> {
     const id = session?.user?.id;
     const tenantId = activeTenantId();
     if (!id || !tenantId || session.user.tenantId !== tenantId) return null;
+    if (session.user.support) {
+      // Web365 support: the grant was re-checked when the session was read; nothing may be saved.
+      markTransactionReadOnly();
+      return supportActor(session.user, tenantId, session.user.support.grantId);
+    }
     const record = users.find((user) => user.id === id);
     if (!record) return null;
     const actor = actorFor(record, session.user.outletId);
@@ -75,7 +81,12 @@ export async function requirePage(permission: Permission | Permission[], path: s
  * everything it renders here and pass plain values to its components.
  */
 export async function pageData<T>(permission: Permission | Permission[], path: string, build: (actor: Actor) => T | Promise<T>): Promise<T> {
-  return withDatabaseTransaction(async () => build(await requirePage(permission, path)));
+  return withDatabaseTransaction(async () => {
+    const actor = await requirePage(permission, path);
+    // Support sessions may view pages that tidy data as they render (alert scans): those changes are dropped.
+    if (actor.support) markTransactionReadOnly("discard");
+    return build(actor);
+  });
 }
 
 type Handler = (actor: Actor) => Promise<unknown> | unknown;
@@ -90,7 +101,10 @@ class RolledBack extends Error {
 function errorResponse(error: unknown) {
   if (error instanceof DomainError) return NextResponse.json({ error: error.message }, { status: error.status });
   if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429, headers: { "Retry-After": String(Math.ceil(error.retryAfterSeconds)) } });
-  if (error instanceof TenantRequiredError) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  // Matched by name as well: Next.js may bundle the database module into more than one chunk, and instanceof
+  // fails across copies of a class.
+  if (error instanceof TenantRequiredError || (error as Error)?.name === "TenantRequiredError") return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  if (error instanceof ReadOnlyError || (error as Error)?.name === "ReadOnlyError") return NextResponse.json({ error: new ReadOnlyError().message }, { status: 403 });
   // A business code or number that already exists in this pharmacy (unique per pharmacy in the database).
   if (error && typeof error === "object" && "code" in error && error.code === "P2010" && /\b23505\b/.test(String((error as { message?: unknown }).message))) {
     return NextResponse.json({ error: "That code or number is already used in this pharmacy. Refresh and try again." }, { status: 409 });

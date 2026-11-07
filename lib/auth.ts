@@ -8,9 +8,10 @@ import { currentTenant, withDatabaseTransaction } from "@/lib/db/database";
 import { getOutletById, users } from "@/lib/data";
 import { allowedOutletIds, canSwitchTo, HEAD_OFFICE, resolveActiveOutlet } from "@/lib/erp/access";
 import { activeImpersonation } from "@/lib/erp/impersonation";
+import { activeSupportGrant, supportActor } from "@/lib/platform/support";
 import { recordAudit } from "@/lib/erp/services";
 import { effectivePermissions, isOutletScoped } from "@/lib/rbac";
-import { accountIdsFor, activeMembership, pharmaciesFor, pharmacyNames, verifiedAccountIds } from "@/lib/saas/identity";
+import { accountIdsFor, activeMembership, pharmaciesFor, pharmacyNames, suspendedMessage, suspendedPharmaciesFor, verifiedAccountIds } from "@/lib/saas/identity";
 import { limitSignIn, recordSignInFailure } from "@/lib/saas/rate-limit";
 import { runInTenant } from "@/lib/saas/tenant";
 
@@ -51,7 +52,10 @@ export async function authorizeCredentials(credentials: unknown): Promise<Signed
   const choices = await pharmaciesFor(accountIds);
   const choice = tenantId ? choices.find((entry) => entry.tenantId === tenantId) : choices.length === 1 ? choices[0] : undefined;
   if (!choice) {
-    if (!choices.length) throw new Error("This account does not have access to an active pharmacy. Contact your administrator.");
+    if (!choices.length) {
+      const suspended = await suspendedPharmaciesFor(accountIds);
+      throw new Error(suspended.length ? suspendedMessage(suspended) : "This account does not have access to an active pharmacy. Contact your administrator.");
+    }
     throw new Error(tenantId ? "This account does not have access to that pharmacy." : "Choose the pharmacy you are signing in to.");
   }
 
@@ -238,6 +242,22 @@ export const authOptions: NextAuthOptions = {
       // Rebuilt from the live record of the token's pharmacy on every read, so role, outlet, permission and
       // membership changes apply immediately. While impersonating, the effective user is the target.
       return runInTenant(token.tenantId ?? null, () => withDatabaseTransaction(async () => {
+        // Web365 support session: valid only while the pharmacy's approval stands; read-only permissions.
+        if (typeof token.supportGrantId === "string") {
+          const grant = await activeSupportGrant(token.supportGrantId, token.tenantId);
+          const tenant = currentTenant();
+          const actor = grant && tenant && typeof token.id === "string" ? supportActor({ id: token.id, name: token.name }, tenant.id, grant.id) : null;
+          if (session.user) {
+            Object.assign(session.user, {
+              id: actor?.id ?? "", name: actor?.name ?? "", email: "", role: actor ? actor.role : "", outletId: null,
+              outletIds: actor?.outletIds ?? [], permissions: actor?.permissions ?? [], staffId: null, impersonation: null,
+              outlets: (actor?.outletIds ?? []).map((id) => ({ id, name: getOutletById(id)?.name ?? id })),
+              tenantId: actor ? tenant!.id : null, tenantName: actor ? tenant!.name : null, pharmacies: [],
+              support: grant ? { grantId: grant.id, expiresAt: grant.expiresAt, agent: grant.agent } : null,
+            });
+          }
+          return session;
+        }
         const impersonation = token.impersonationId ? activeImpersonation(token.impersonationId) : null;
         const own = users.find((row) => row.id === token.id);
         const revoked = token.revoked === true || Boolean(own && signedInBefore(own.passwordChangedAt, token));
@@ -259,6 +279,7 @@ export const authOptions: NextAuthOptions = {
           session.user.tenantName = record && tenant ? tenant.name : null;
           // The real account's pharmacies (not the impersonated user's), for the pharmacy switcher.
           session.user.pharmacies = record && typeof token.id === "string" && !impersonation ? await pharmacyNames(token.id) : [];
+          session.user.support = null;
           if (record) session.user.name = record.name;
         }
         return session;

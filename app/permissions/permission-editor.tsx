@@ -54,10 +54,10 @@ export function PermissionEditor({
 
   /** Why a cell cannot be changed, or null if it can. */
   function lockReason(role: RoleInfo, permission: PermissionInfo) {
-    if (!editable) return "Only the Super Administrator can change permissions";
-    if (role.value === "SUPER_ADMIN") return "Super Administrator always has full access";
+    if (!editable) return "Only the Pharmacy Super Admin can change permissions";
+    if (role.value === "SUPER_ADMIN") return "Pharmacy Super Admin always has full access";
     if (permission.locked) return "Required by every role";
-    if (permission.superAdminOnly) return "Reserved for the Super Administrator";
+    if (permission.superAdminOnly) return "Reserved for the Pharmacy Super Admin";
     if (role.scoped && permission.centralOnly) return "Central permission — not allowed for outlet roles";
     return null;
   }

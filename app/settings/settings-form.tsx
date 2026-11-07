@@ -155,7 +155,7 @@ function ImpersonationPanel({ initial }: { initial: SystemSettings["impersonatio
   const [note, setNote] = useState<string | null>(null);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   return (
-    <Panel title="Super Admin user impersonation" description="“Switch user” lets the Super Administrator act as another user with exactly that user's role, outlets and permissions. Sessions are server-side, time-limited and fully audited.">
+    <Panel title="Super Admin user impersonation" description="“Switch user” lets the Pharmacy Super Admin act as another user with exactly that user's role, outlets and permissions. Sessions are server-side, time-limited and fully audited.">
       <div className="grid gap-4 md:grid-cols-3">
         <label className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm md:col-span-3">
           <input type="checkbox" className="mt-0.5 h-5 w-5 accent-green-700" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} />

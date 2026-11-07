@@ -19,6 +19,7 @@ import {
   Landmark,
   LayoutDashboard,
   LineChart,
+  LifeBuoy,
   ListChecks,
   PackagePlus,
   PackageSearch,
@@ -107,6 +108,7 @@ export const NAVIGATION: NavGroup[] = [
     label: "System",
     items: [
       { name: "Setup Checklist", href: "/onboarding", icon: ListChecks, keywords: "getting started onboarding business profile", requires: ["settings.manage"] },
+      { name: "Web365 Support Access", href: "/support-access", icon: LifeBuoy, keywords: "support help web365 access", requires: ["settings.manage"] },
       { name: "Notifications", href: "/notifications", icon: Bell },
       { name: "Audit Logs", href: "/audit", icon: ScrollText },
       { name: "System Settings", href: "/settings", icon: Settings },

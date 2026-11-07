@@ -17,6 +17,8 @@ export type Actor = {
   impersonation?: { sessionId: string; adminId: string; adminName: string; expiresAt: string };
   /** The pharmacy (tenant) of the request; set by getActor from the verified session. */
   tenantId?: string;
+  /** Present for a Web365 support session (read-only, approved by the pharmacy). */
+  support?: { grantId: string };
 };
 
 export type CustomerType = "Walk-in" | "Retail" | "Corporate" | "HMO" | "Clinic";

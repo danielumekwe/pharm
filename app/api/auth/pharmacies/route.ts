@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { pharmaciesFor, verifiedAccountIds } from "@/lib/saas/identity";
+import { pharmaciesFor, suspendedMessage, suspendedPharmaciesFor, verifiedAccountIds } from "@/lib/saas/identity";
 import { limitSignIn, RateLimitError, recordSignInFailure } from "@/lib/saas/rate-limit";
 
 const schema = z.object({ identifier: z.string().trim().min(3).max(120), password: z.string().min(6).max(128) });
@@ -25,6 +25,8 @@ export async function POST(request: Request) {
     const choices = await pharmaciesFor(ids);
     const usable = choices.filter((entry) => entry.status === "ACTIVE");
     if (!usable.length) {
+      const suspendedPharmacies = await suspendedPharmaciesFor(ids);
+      if (suspendedPharmacies.length) return NextResponse.json({ error: suspendedMessage(suspendedPharmacies) }, { status: 403 });
       const invited = choices.some((entry) => entry.status === "INVITED");
       const suspended = choices.some((entry) => entry.status === "SUSPENDED");
       const error = suspended ? "This account is suspended. Contact your manager." : invited ? "This account has not been activated yet. Use the invitation link you were sent." : "This account does not have access to an active pharmacy.";

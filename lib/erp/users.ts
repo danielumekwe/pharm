@@ -21,7 +21,9 @@ import {
   type Role,
 } from "@/lib/rbac";
 import { newId } from "@/lib/erp/ids";
-import { emailTaken, sharedWithOtherPharmacies } from "@/lib/saas/identity";
+import { currentTenant } from "@/lib/db/database";
+import { sendJoinPharmacyEmail } from "@/lib/saas/account-email";
+import { emailTaken, existingAccount, sharedWithOtherPharmacies } from "@/lib/saas/identity";
 import { currentTenantId } from "@/lib/saas/tenant";
 
 const DAY = 1000 * 60 * 60 * 24;
@@ -140,12 +142,12 @@ function checkGrants(actor: Actor, role: Role, grants: string[]) {
   const clean = Array.from(new Set(grants));
   for (const grant of clean) {
     if (!isPermission(grant)) throw new DomainError(`Unknown permission "${grant}".`);
-    if (SUPER_ADMIN_ONLY.includes(grant)) throw new DomainError(`"${PERMISSIONS[grant].label}" can only be held by the Super Administrator role.`);
+    if (SUPER_ADMIN_ONLY.includes(grant)) throw new DomainError(`"${PERMISSIONS[grant].label}" can only be held by the Pharmacy Super Admin role.`);
     if (isOutletScoped(role) && CENTRAL_ONLY_PERMISSIONS.includes(grant)) {
       throw new DomainError(`"${PERMISSIONS[grant].label}" cannot be granted to outlet-level staff.`);
     }
     if (!actor.permissions.includes(grant)) throw new DomainError(`You cannot grant "${PERMISSIONS[grant].label}" because you do not hold it yourself.`, 403);
-    if (grant === "users.manage" && actor.role !== "SUPER_ADMIN") throw new DomainError("Only the Super Administrator can grant user management.", 403);
+    if (grant === "users.manage" && actor.role !== "SUPER_ADMIN") throw new DomainError("Only the Pharmacy Super Admin can grant user management.", 403);
   }
   return clean as Permission[];
 }
@@ -180,14 +182,29 @@ export type CreateUserInput = {
 export async function createUser(actor: Actor, input: CreateUserInput) {
   assertCan(actor, "users.manage");
   const contact = checkContact(input);
-  if (await emailTaken(contact.email)) {
-    throw new DomainError("This email already has an account with another pharmacy on the platform. Use a different email for now; adding existing accounts is coming in a later release.");
-  }
+  // Someone who already works for another pharmacy keeps their account; they are invited to join this one.
+  const existing = await existingAccount(contact.email);
   const staffId = (input.staffId?.trim() || nextStaffId()).toUpperCase();
   if (!STAFF_ID_PATTERN.test(staffId)) throw new DomainError("Staff ID must be 3–20 letters, numbers or dashes (e.g. W365-0021).");
   if (users.some((user) => user.staffId?.toUpperCase() === staffId)) throw new DomainError(`Staff ID ${staffId} is already in use.`);
   const assignment = checkAssignment(actor, input.role, input.outletIds, input.primaryOutletId);
   const grants = checkGrants(actor, assignment.role, input.grants ?? []);
+
+  if (existing) {
+    const member: User = { ...existing, staffId, role: assignment.role, outletId: assignment.primary, outletIds: assignment.outletIds, grants, status: "INVITED" };
+    users.push(member);
+    const pharmacy = currentTenant()?.name ?? "this pharmacy";
+    recordAudit(actor, {
+      action: "users.invite-existing",
+      entity: "User",
+      entityId: member.id,
+      summary: `Invited ${member.name} <${member.email}>, who already has an account, to join as ${ROLE_LABELS[member.role]} (${staffId}); waiting for them to accept`,
+      outletId: member.outletId,
+      severity: "warning",
+    });
+    await sendJoinPharmacyEmail(member, currentTenantId(), pharmacy, ROLE_LABELS[member.role], actor.name);
+    return { user: toStaffRow(member), invitePath: null, temporaryPassword: null, joinPending: true };
+  }
 
   const user: User = {
     id: newId("user", `${Date.now()}`),
@@ -312,7 +329,7 @@ export function setUserStatus(actor: Actor, userId: string, status: Exclude<User
   if (current === status) throw new DomainError(`Account is already ${status.toLowerCase()}.`);
   if (status !== "ACTIVE" && reason.trim().length < 3) throw new DomainError("Give a reason for suspending or deactivating the account.");
   if (current === "DEACTIVATED" && status === "ACTIVE" && actor.role !== "SUPER_ADMIN") {
-    throw new DomainError("Only the Super Administrator can reactivate a deactivated account.", 403);
+    throw new DomainError("Only the Pharmacy Super Admin can reactivate a deactivated account.", 403);
   }
   if (current === "INVITED" && status === "ACTIVE") throw new DomainError("The user must accept their invitation first, or set a password for them.");
 
@@ -354,11 +371,17 @@ export async function resetPassword(actor: Actor, userId: string) {
   return { user: toStaffRow(user), temporaryPassword: password, invitePath: null };
 }
 
-export function resendInvite(actor: Actor, userId: string) {
+export async function resendInvite(actor: Actor, userId: string) {
   const user = users.find((row) => row.id === userId);
   if (!user) throw new DomainError("User not found.", 404);
   assertManage(actor, user);
   if (user.status !== "INVITED") throw new DomainError("Only users who have not activated their account can be re-invited.");
+  if (user.passwordHash || user.password) {
+    // An existing account invited to join: send a new join link (their password stays theirs).
+    await sendJoinPharmacyEmail(user, currentTenantId(), currentTenant()?.name ?? "this pharmacy", ROLE_LABELS[user.role], actor.name);
+    recordAudit(actor, { action: "users.invite-existing", entity: "User", entityId: user.id, summary: `New join link sent to ${user.name} (${user.email})`, outletId: user.outletId });
+    return { user: toStaffRow(user), invitePath: null, temporaryPassword: null, joinPending: true };
+  }
   user.invite = newInvite();
   recordAudit(actor, { action: "users.invite", entity: "User", entityId: user.id, summary: `New invitation issued to ${user.name} (${user.email})`, outletId: user.outletId });
   return { user: toStaffRow(user), invitePath: `/invite?token=${user.invite.token}`, temporaryPassword: null };
