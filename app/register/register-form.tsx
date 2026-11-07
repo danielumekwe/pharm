@@ -107,6 +107,11 @@ export function RegisterForm({ plans, countries, currencies, states }: Props) {
                 <span className="block text-base font-semibold text-slate-900">{plan.name}</span>
                 <span className="mt-0.5 block text-sm font-medium text-green-800">{price(plan, form.billingCycle)}</span>
                 <span className="mt-2 block text-xs leading-relaxed text-slate-600">{plan.description}</span>
+                <span className="mt-2 block text-xs font-medium text-slate-700">
+                  {plan.maxOutlets === null ? "Outlet limit not set" : `${plan.maxOutlets} outlet${plan.maxOutlets === 1 ? "" : "s"}`}
+                  {" · "}
+                  {plan.maxStaffAccounts === null ? "Staff limit not set" : `${plan.maxStaffAccounts} staff accounts`}
+                </span>
                 {plan.trialDays ? <span className="mt-2 inline-block rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">{plan.trialDays}-day free trial</span> : null}
               </button>
             );

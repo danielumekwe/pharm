@@ -31,6 +31,7 @@ before(async () => {
   const [admin] = await server.query("SELECT password, password_hash FROM users WHERE email = 'admin@web365.ng'");
   // Pharmacy B reuses the demo outlet's code on purpose: business codes are unique per pharmacy, not globally.
   await server.query("INSERT INTO tenants (id, slug, name) VALUES ('tenant-b', 'pharmacy-b', 'Pharmacy B')");
+  await server.query("INSERT INTO subscriptions (id, tenant_id, plan_id, status, billing_cycle) VALUES ('sub-tenant-b', 'tenant-b', 'starter', 'ACTIVE', 'MONTHLY')");
   await server.query("INSERT INTO outlets (id, tenant_id, name, code, status, seq) VALUES ('outlet-b1', 'tenant-b', 'Pharmacy B Main', ?, 'OPEN', 1)", outlet.code);
   await server.query("INSERT INTO products (id, tenant_id, name, outlet_id, stock, min_stock, seq) VALUES ('prod-b1', 'tenant-b', ?, 'outlet-b1', 50, 10, 1)", SECRET);
   await server.query("INSERT INTO batches (id, tenant_id, batch_number, product_id, assigned_outlet_id, expiry_date, quantity_received, available_quantity, seq) VALUES ('bat-b1', 'tenant-b', 'B-LOT-1', 'prod-b1', 'outlet-b1', '2030-01-01', 50, 50, 1)");

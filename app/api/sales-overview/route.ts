@@ -6,6 +6,7 @@ import { DomainError, recordAudit } from "@/lib/erp/services";
 import { salesOverviewPdf } from "@/lib/pdf/sales-overview-pdf";
 import { withDatabaseTransaction } from "@/lib/db/database";
 import { getActor } from "@/lib/session";
+import { subscriptionAccessProblem } from "@/lib/saas/subscriptions";
 
 const TRENDS: TrendGranularity[] = ["daily", "weekly", "monthly", "yearly"];
 
@@ -15,6 +16,10 @@ export async function GET(request: Request) {
     return await withDatabaseTransaction(async () => {
       const actor = await getActor();
       if (!actor) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+      if (!actor.support) {
+        const problem = await subscriptionAccessProblem();
+        if (problem) return NextResponse.json({ error: problem }, { status: 402 });
+      }
       const url = new URL(request.url);
       const trend = url.searchParams.get("trend") as TrendGranularity | null;
       const format = url.searchParams.get("format") ?? "json";

@@ -17,10 +17,12 @@ export type TenantSummary = {
   statusReason: string | null;
   isDemo: boolean;
   createdAt: string;
+  planId: string | null;
   plan: string | null;
   subscriptionStatus: string | null;
   billingCycle: string | null;
   trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
   members: number;
   outlets: number;
   owner: { name: string; email: string } | null;
@@ -28,12 +30,12 @@ export type TenantSummary = {
 
 type Row = {
   id: string; name: string; slug: string; status: string; status_reason: string | null; is_demo: boolean; created_at: Date;
-  plan_name: string | null; sub_status: string | null; billing_cycle: string | null; trial_ends_at: Date | null; members: string; owner_name: string | null; owner_email: string | null;
+  plan_id: string | null; plan_name: string | null; sub_status: string | null; billing_cycle: string | null; trial_ends_at: Date | null; current_period_end: Date | null; members: string; owner_name: string | null; owner_email: string | null;
 };
 
 const SELECT = `
   SELECT t.id, t.name, t.slug, t.status, t.status_reason, t.is_demo, t.created_at,
-         p.name AS plan_name, s.status AS sub_status, s.billing_cycle, s.trial_ends_at,
+         p.id AS plan_id, p.name AS plan_name, s.status AS sub_status, s.billing_cycle, s.trial_ends_at, s.current_period_end,
          (SELECT count(*) FROM tenant_memberships m WHERE m.tenant_id = t.id AND m.status <> 'DEACTIVATED') AS members,
          o.name AS owner_name, o.email AS owner_email
   FROM tenants t
@@ -47,8 +49,10 @@ const SELECT = `
 function summary(row: Row, outlets: number): TenantSummary {
   return {
     id: row.id, name: row.name, slug: row.slug, status: row.status, statusReason: row.status_reason, isDemo: row.is_demo,
-    createdAt: new Date(row.created_at).toISOString(), plan: row.plan_name, subscriptionStatus: row.sub_status, billingCycle: row.billing_cycle,
-    trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at).toISOString() : null, members: Number(row.members), outlets,
+    createdAt: new Date(row.created_at).toISOString(), planId: row.plan_id, plan: row.plan_name, subscriptionStatus: row.sub_status, billingCycle: row.billing_cycle,
+    trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at).toISOString() : null,
+    currentPeriodEnd: row.current_period_end ? new Date(row.current_period_end).toISOString() : null,
+    members: Number(row.members), outlets,
     owner: row.owner_email ? { name: row.owner_name ?? "", email: row.owner_email } : null,
   };
 }

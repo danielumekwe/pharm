@@ -5,6 +5,7 @@ import { DomainError } from "@/lib/erp/services";
 import { can } from "@/lib/rbac";
 import { getActor, guarded } from "@/lib/session";
 import { withDatabaseTransaction } from "@/lib/db/database";
+import { subscriptionAccessProblem } from "@/lib/saas/subscriptions";
 
 /** Streams a regulatory file. Runs in the pharmacy's transaction: only its own documents can be found. */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -16,6 +17,10 @@ async function download(id: string) {
   const actor = await getActor();
   if (!actor) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   if (!can(actor, "regulatory.view")) return NextResponse.json({ error: "Not permitted." }, { status: 403 });
+  if (!actor.support) {
+    const problem = await subscriptionAccessProblem();
+    if (problem) return NextResponse.json({ error: problem }, { status: 402 });
+  }
   try {
     const { document, bytes } = await readDocument(id);
     return new NextResponse(new Uint8Array(bytes), {

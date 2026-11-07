@@ -121,6 +121,126 @@ describe("Managing pharmacies", () => {
     assert.equal((await ops.patch("/api/platform/tenants/tenant-demo", { action: "extend-trial", days: 10 })).status, 400);
   });
 
+  test("platform admins can configure plans and assign one to a pharmacy", async () => {
+    const ops = await platformSession(PLATFORM_ADMIN);
+    const support = await platformSession(PLATFORM_SUPPORT);
+    const config = {
+      name: "Starter",
+      description: "One outlet and three staff accounts.",
+      monthlyPrice: null,
+      annualPrice: null,
+      currency: "NGN",
+      trialDays: 14,
+      maxOutlets: 1,
+      maxStaffAccounts: 3,
+      features: null,
+      isActive: true,
+      isPublic: true,
+      sortOrder: 1,
+    };
+    assert.equal((await support.patch("/api/platform/plans/starter", config)).status, 403);
+    assert.equal((await ops.patch("/api/platform/plans/starter", { ...config, monthlyPrice: 1.23456 })).status, 422);
+    assert.equal((await ops.patch("/api/platform/plans/starter", config)).status, 200);
+    assert.deepEqual(
+      await server.query("SELECT max_outlets, max_staff_accounts, monthly_price, annual_price FROM plans WHERE id = 'starter'"),
+      [{ max_outlets: 1, max_staff_accounts: 3, monthly_price: null, annual_price: null }],
+    );
+
+    const changed = await ops.patch(`/api/platform/tenants/${sunrise.tenantId}`, {
+      action: "change-plan",
+      planId: "professional",
+      billingCycle: "ANNUAL",
+    });
+    assert.equal(changed.status, 200, JSON.stringify(changed.data));
+    assert.deepEqual(
+      await server.query("SELECT plan_id, billing_cycle FROM subscriptions WHERE tenant_id = ?", sunrise.tenantId),
+      [{ plan_id: "professional", billing_cycle: "ANNUAL" }],
+    );
+    await ops.patch(`/api/platform/tenants/${sunrise.tenantId}`, { action: "change-plan", planId: "starter", billingCycle: "MONTHLY" });
+  });
+
+  test("documented Starter outlet and staff limits are enforced when adding accounts", async () => {
+    const owner = await sunriseOwner();
+    const outlet = await owner.post("/api/outlets", {
+      name: "Second Outlet",
+      code: "OUT-99",
+      type: "RETAIL",
+      address: "99 Test Avenue, Ikeja",
+      manager: "Ngozi Okafor",
+      phone: "08031234567",
+      pcnLicense: "Pending",
+      licenceExpiry: "",
+    });
+    assert.equal(outlet.status, 403);
+    assert.match(outlet.data.error, /Starter plan allows up to 1 outlet/);
+
+    const [mainOutlet] = await server.query("SELECT id FROM outlets WHERE tenant_id = ?", sunrise.tenantId);
+    const staff = (n) => ({
+      name: `Test Staff ${n}`,
+      email: `test-staff-${n}@sunrise.ng`,
+      phone: "08031234567",
+      role: "CASHIER",
+      outletIds: [mainOutlet.id],
+      primaryOutletId: mainOutlet.id,
+      status: "ACTIVE",
+      credential: { mode: "invite" },
+    });
+    const first = await owner.post("/api/users", staff(1));
+    const second = await owner.post("/api/users", staff(2));
+    assert.equal(first.status, 201);
+    assert.equal(second.status, 201);
+    const capped = await owner.post("/api/users", staff(3));
+    assert.equal(capped.status, 403);
+    assert.match(capped.data.error, /Starter plan allows up to 3 staff accounts/);
+    for (const created of [first, second]) {
+      await owner.patch(`/api/users/${created.data.user.id}`, { action: "status", status: "DEACTIVATED", reason: "Test cleanup" });
+    }
+  });
+
+  test("an enabled feature allowlist blocks features not granted to the plan", async () => {
+    const owner = await sunriseOwner();
+    await server.query("UPDATE plans SET features = '[]'::jsonb WHERE id = 'starter'");
+    try {
+      const transfer = await owner.post("/api/transfers", {
+        fromOutletId: "outlet-1",
+        toOutletId: "outlet-2",
+        lines: [{ productId: "prod-not-used", quantity: 1 }],
+      });
+      assert.equal(transfer.status, 403);
+      assert.match(transfer.data.error, /does not include stock transfers/);
+      const regulatory = await owner.patch("/api/regulatory/registrations/not-used", {
+        nafdacNumber: "A4-12345",
+        issuedDate: "2026-01-01",
+        expiryDate: "2027-01-01",
+      });
+      assert.equal(regulatory.status, 403);
+      assert.match(regulatory.data.error, /does not include regulatory management/);
+    } finally {
+      await server.query("UPDATE plans SET features = NULL WHERE id = 'starter'");
+    }
+  });
+
+  test("past-due subscriptions route pages to the subscription screen and block API use", async () => {
+    const owner = await sunriseOwner();
+    await server.query("UPDATE subscriptions SET status = 'PAST_DUE' WHERE tenant_id = ?", sunrise.tenantId);
+    try {
+      assert.equal((await owner.get("/api/products")).status, 402);
+      assert.equal((await owner.get("/api/inventory-reports")).status, 402);
+      assert.equal((await owner.get("/api/sales-overview")).status, 402);
+      assert.equal((await owner.get("/api/reports/export")).status, 402);
+      assert.equal((await owner.get("/api/sales/not-used/receipt")).status, 402);
+      assert.equal((await owner.get("/api/regulatory/documents/not-used")).status, 402);
+      const dashboard = await raw(owner, "GET", "/dashboard");
+      assert.ok([302, 307].includes(dashboard.status));
+      assert.match(dashboard.headers.get("location"), /\/subscription/);
+      const page = await raw(owner, "GET", "/subscription");
+      assert.equal(page.status, 200);
+      assert.match(await page.text(), /Your subscription is past_due/);
+    } finally {
+      await server.query("UPDATE subscriptions SET status = 'TRIAL' WHERE tenant_id = ?", sunrise.tenantId);
+    }
+  });
+
   test("Web365 can create a pharmacy for a customer; the owner chooses their own password from the email", async () => {
     const ops = await platformSession(PLATFORM_ADMIN);
     const created = await ops.post("/api/platform/tenants", {

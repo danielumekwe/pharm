@@ -126,3 +126,24 @@ PLATFORM_ADMIN_PASSWORD='<12+ characters>' DIRECT_DATABASE_URL=<target> npm run 
 ```
 
 Without `PLATFORM_ADMIN_PASSWORD`, a strong password is generated and printed once. Sign in at `/platform/login`. Further staff accounts are added from **Platform staff**.
+
+## Phase 5 (plans, quotas and subscription enforcement)
+
+Migration `20261110090000_plan_limits` (rollback: `prisma/rollbacks/20261110090000_plan_limits/down.sql`):
+
+- Adds optional `max_outlets`, `max_staff_accounts` and `features` (a JSON array of feature keys) to `plans`.
+- Seeds the documented limits: Starter is 1 outlet / 3 staff accounts; Professional is 3 outlets / 10 staff accounts. Enterprise limits remain unset because the Phase 4 results do not give numeric values.
+- Prices and feature lists remain unset until Web365 confirms them. An unset feature list does not change existing access. Currently enforced feature keys are `stock_transfers` and `regulatory_management`; an enabled empty list denies both.
+- Enforces outlet and staff caps when creating an outlet, inviting a staff account, or reactivating a deactivated account. Existing records are not deleted or disabled when a cap is lowered.
+- `TRIAL` is allowed until `trial_ends_at`; `ACTIVE` and an unexpired `GRACE` period are allowed. A grace period must have a future `current_period_end`. An ended trial, `PAST_DUE`, `SUSPENDED`, `CANCELLED`, or `EXPIRED` subscription blocks pharmacy pages and APIs. Users are routed to `/subscription` for status and support instructions. Approved read-only Web365 support sessions are unaffected.
+- Adds platform controls at `/platform/plans` for prices, limits, trials, visibility and supported feature allowlists. A platform Super Admin can change a pharmacy's plan or subscription status on its detail page. Each change is recorded in the platform audit trail.
+
+The migration does not set prices or guess Enterprise quotas. After product approval, fill these in under **Plans** before public registration is enabled. No payment processor or automatic payment-status updates are included in this phase; Web365 must set subscription status from the platform until a billing integration is added.
+
+Before applying to Neon:
+
+- [ ] Rehearse the migration and rollback on a fresh copy; verify registration still shows unset prices accurately and that over-limit additions return a clear error.
+- [ ] Product owner approval and a fresh backup/Neon branch.
+- [ ] Deploy the migration and Phase 5 code in the same window, then re-run `prisma/sql/app-role.sql`.
+- [ ] Review each plan's limits, prices, visibility and feature allowlist in `/platform/plans`; specifically decide the Enterprise quotas before selling that plan.
+- [ ] Confirm subscription statuses are monitored and manually updated while payment integration is absent.

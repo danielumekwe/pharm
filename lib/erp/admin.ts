@@ -22,6 +22,7 @@ import {
   type Role,
 } from "@/lib/rbac";
 import { newId } from "@/lib/erp/ids";
+import { assertPlanLimit } from "@/lib/saas/subscriptions";
 
 // ---------------------------------------------------------------- outlets
 
@@ -48,9 +49,10 @@ function checkOutlet(input: OutletInput, excludeId?: string) {
   return { ...input, name, code, address: input.address.trim(), manager: input.manager.trim() || "-", phone: input.phone.trim(), pcnLicense: input.pcnLicense.trim() || "Pending" };
 }
 
-export function createOutlet(actor: Actor, input: OutletInput) {
+export async function createOutlet(actor: Actor, input: OutletInput) {
   assertCan(actor, "outlets.manage");
   const clean = checkOutlet(input);
+  await assertPlanLimit("outlets", outlets.filter((row) => row.status !== "CLOSED").length);
   const outlet: Outlet = {
     id: newId("outlet", `${Date.now()}`),
     ...clean,
@@ -63,11 +65,14 @@ export function createOutlet(actor: Actor, input: OutletInput) {
   return outlet;
 }
 
-export function updateOutlet(actor: Actor, outletId: string, input: OutletInput & { status: "ACTIVE" | "CLOSED" }) {
+export async function updateOutlet(actor: Actor, outletId: string, input: OutletInput & { status: "ACTIVE" | "CLOSED" }) {
   assertCan(actor, "outlets.manage");
   const outlet = outlets.find((row) => row.id === outletId);
   if (!outlet) throw new DomainError("Outlet not found.", 404);
   const clean = checkOutlet(input, outletId);
+  if (outlet.status === "CLOSED" && input.status === "ACTIVE") {
+    await assertPlanLimit("outlets", outlets.filter((row) => row.status !== "CLOSED").length);
+  }
 
   if (input.status === "CLOSED" && outlet.status !== "CLOSED") {
     const onHand = products.filter((product) => product.outletId === outletId).reduce((sum, product) => sum + product.stock, 0);

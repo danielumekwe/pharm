@@ -6,6 +6,7 @@ import { outlets, users, type User, type UserStatus } from "@/lib/data";
 import { openOutletIds } from "@/lib/erp/access";
 import { hashPassword } from "@/lib/password";
 import { assertCan, DomainError, outletName, recordAudit } from "@/lib/erp/services";
+import { assertPlanLimit } from "@/lib/saas/subscriptions";
 import { getStore } from "@/lib/erp/store";
 import type { Actor } from "@/lib/erp/types";
 import {
@@ -189,6 +190,7 @@ export async function createUser(actor: Actor, input: CreateUserInput) {
   if (users.some((user) => user.staffId?.toUpperCase() === staffId)) throw new DomainError(`Staff ID ${staffId} is already in use.`);
   const assignment = checkAssignment(actor, input.role, input.outletIds, input.primaryOutletId);
   const grants = checkGrants(actor, assignment.role, input.grants ?? []);
+  await assertPlanLimit("staff", users.filter((user) => user.status !== "DEACTIVATED").length);
 
   if (existing) {
     const member: User = { ...existing, staffId, role: assignment.role, outletId: assignment.primary, outletIds: assignment.outletIds, grants, status: "INVITED" };
@@ -321,7 +323,7 @@ export async function updateUser(actor: Actor, userId: string, input: UpdateUser
   return toStaffRow(user);
 }
 
-export function setUserStatus(actor: Actor, userId: string, status: Exclude<UserStatus, "INVITED">, reason: string) {
+export async function setUserStatus(actor: Actor, userId: string, status: Exclude<UserStatus, "INVITED">, reason: string) {
   const user = users.find((row) => row.id === userId);
   if (!user) throw new DomainError("User not found.", 404);
   assertManage(actor, user);
@@ -332,6 +334,9 @@ export function setUserStatus(actor: Actor, userId: string, status: Exclude<User
     throw new DomainError("Only the Pharmacy Super Admin can reactivate a deactivated account.", 403);
   }
   if (current === "INVITED" && status === "ACTIVE") throw new DomainError("The user must accept their invitation first, or set a password for them.");
+  if (current === "DEACTIVATED" && status !== "DEACTIVATED") {
+    await assertPlanLimit("staff", users.filter((row) => row.status !== "DEACTIVATED").length);
+  }
 
   user.status = status;
   if (status === "DEACTIVATED") user.invite = null;

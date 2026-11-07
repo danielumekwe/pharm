@@ -13,6 +13,7 @@ import type { Actor } from "@/lib/erp/types";
 import { canAny, type Permission } from "@/lib/rbac";
 import { runInTenant, TenantRequiredError } from "@/lib/saas/tenant";
 import { RateLimitError } from "@/lib/saas/rate-limit";
+import { assertSubscriptionAccess, subscriptionAccessProblem } from "@/lib/saas/subscriptions";
 
 /** The running transaction's pharmacy, if it is active. Suspended or closed pharmacies get no access. */
 function activeTenantId() {
@@ -71,6 +72,7 @@ function asList(permission: Permission | Permission[]) {
 export async function requirePage(permission: Permission | Permission[], path: string): Promise<Actor> {
   const actor = await getActor();
   if (!actor) redirect("/");
+  if (!actor.support && await subscriptionAccessProblem()) redirect("/subscription");
   if (!canAny(actor, asList(permission))) redirect(`/dashboard?denied=${encodeURIComponent(path)}`);
   return actor;
 }
@@ -133,6 +135,7 @@ export async function guarded(permission: Permission | Permission[], handler: Ha
         return NextResponse.json({ error: `Your role does not have the "${asList(permission).join(" / ")}" permission.` }, { status: 403 });
       }
       try {
+        if (!actor.support) await assertSubscriptionAccess();
         const result = await handler(actor);
         await flushDatabase();
         return NextResponse.json(result, { status: successStatus });

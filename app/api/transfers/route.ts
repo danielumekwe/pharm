@@ -16,5 +16,5 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  return guarded("stock.request", async (actor) => createTransfer(actor, schema.parse(await request.json())), 201);
+  return guarded("stock.request", async (actor) => await createTransfer(actor, schema.parse(await request.json())), 201);
 }

@@ -5,6 +5,7 @@ import { buildReport } from "@/lib/erp/reports";
 import { getActor } from "@/lib/session";
 import { canAny } from "@/lib/rbac";
 import { withDatabaseTransaction } from "@/lib/db/database";
+import { subscriptionAccessProblem } from "@/lib/saas/subscriptions";
 
 type Column = { header: string; key: string; width?: number; money?: boolean; percent?: boolean };
 
@@ -33,6 +34,10 @@ async function exportReport(request: Request) {
   const actor = await getActor();
   if (!actor) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   if (!canAny(actor, ["reports.sales", "reports.inventory", "reports.financial"])) return NextResponse.json({ error: "Your role cannot export reports." }, { status: 403 });
+  if (!actor.support) {
+    const problem = await subscriptionAccessProblem();
+    if (problem) return NextResponse.json({ error: problem }, { status: 402 });
+  }
 
   const url = new URL(request.url);
   const outletParam = url.searchParams.get("outlet");

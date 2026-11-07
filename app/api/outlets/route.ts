@@ -15,5 +15,5 @@ const base = {
 };
 
 export async function POST(request: Request) {
-  return guarded("outlets.manage", async (actor) => createOutlet(actor, z.object(base).parse(await request.json())), 201);
+  return guarded("outlets.manage", async (actor) => await createOutlet(actor, z.object(base).parse(await request.json())), 201);
 }

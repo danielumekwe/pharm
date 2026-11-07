@@ -16,6 +16,7 @@ import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor, StockTransfer } from "@/lib/erp/types";
 import { can, isOutletScoped } from "@/lib/rbac";
 import { newId } from "@/lib/erp/ids";
+import { assertPlanFeature } from "@/lib/saas/subscriptions";
 
 function find(id: string) {
   const transfer = getStore().transfers.find((row) => row.id === id || row.reference === id);
@@ -40,7 +41,8 @@ export function transfersFor(actor: Actor) {
 
 export type TransferInput = { fromOutletId: string; toOutletId: string; lines: { productId: string; quantity: number }[]; notes?: string; submit?: boolean };
 
-export function createTransfer(actor: Actor, input: TransferInput) {
+export async function createTransfer(actor: Actor, input: TransferInput) {
+  await assertPlanFeature("stock_transfers");
   assertCan(actor, "stock.request");
   assertOutletAccess(actor, input.fromOutletId);
   if (input.fromOutletId === input.toOutletId) throw new DomainError("Choose a different destination outlet.");
@@ -82,7 +84,8 @@ export type TransferAction =
   | { action: "reject"; note: string }
   | { action: "receive"; note?: string; final?: boolean; lines: { productId: string; batchNumber: string; quantity: number }[] };
 
-export function actOnTransfer(actor: Actor, id: string, input: TransferAction) {
+export async function actOnTransfer(actor: Actor, id: string, input: TransferAction) {
+  await assertPlanFeature("stock_transfers");
   const transfer = find(id);
   const note = input.note?.trim() ?? "";
   switch (input.action) {

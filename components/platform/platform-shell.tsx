@@ -10,6 +10,7 @@ import { PlatformSignOut } from "./platform-sign-out";
 export function PlatformShell({ actor, children }: { actor: PlatformActor; children: ReactNode }) {
   const links = [
     { href: "/platform", label: "Pharmacies", show: true },
+    { href: "/platform/plans", label: "Plans", show: platformCan(actor, "plans.manage") },
     { href: "/platform/audit", label: "Audit log", show: platformCan(actor, "audit.view") },
     { href: "/platform/staff", label: "Platform staff", show: platformCan(actor, "staff.manage") },
   ];

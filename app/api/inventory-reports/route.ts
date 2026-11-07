@@ -7,6 +7,7 @@ import { inventoryReportPdf } from "@/lib/pdf/inventory-report-pdf";
 import { canAny } from "@/lib/rbac";
 import { getActor } from "@/lib/session";
 import { withDatabaseTransaction } from "@/lib/db/database";
+import { subscriptionAccessProblem } from "@/lib/saas/subscriptions";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -20,6 +21,10 @@ async function exportReport(request: Request) {
   const actor = await getActor();
   if (!actor) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   if (!canAny(actor, ["reports.inventory", "alerts.manage"])) return NextResponse.json({ error: "Your role cannot run inventory reports." }, { status: 403 });
+  if (!actor.support) {
+    const problem = await subscriptionAccessProblem();
+    if (problem) return NextResponse.json({ error: problem }, { status: 402 });
+  }
 
   const url = new URL(request.url);
   const kind = url.searchParams.get("kind") ?? "low-stock";

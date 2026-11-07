@@ -17,5 +17,5 @@ const schema = z.discriminatedUnion("action", [
 // Fine-grained permission and outlet checks (approve, dispatch, receive) happen in the service.
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return guarded(["stock.request", "stock.approve", "purchase.receive"], async (actor) => actOnTransfer(actor, id, schema.parse(await request.json())));
+  return guarded(["stock.request", "stock.approve", "purchase.receive"], async (actor) => await actOnTransfer(actor, id, schema.parse(await request.json())));
 }

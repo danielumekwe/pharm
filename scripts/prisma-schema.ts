@@ -216,6 +216,9 @@ model Plan {
   annualPrice              Decimal?       @map("annual_price") @db.Decimal(18, 4)
   currency                 String         @default("NGN")
   trialDays                Int            @default(14) @map("trial_days")
+  maxOutlets               Int?           @map("max_outlets")
+  maxStaffAccounts         Int?           @map("max_staff_accounts")
+  features                 Json?          @db.JsonB
   isActive                 Boolean        @default(true) @map("is_active")
   isPublic                 Boolean        @default(true) @map("is_public")
   sortOrder                Int            @default(0) @map("sort_order")

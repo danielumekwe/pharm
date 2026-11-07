@@ -12,10 +12,26 @@ async function call(url: string, method: string, body?: unknown) {
   return data;
 }
 
-export function TenantActions({ tenantId, status, subscription }: { tenantId: string; status: string; subscription: string | null }) {
+export function TenantActions({
+  tenantId, status, subscription, planId, billingCycle, currentPeriodEnd, plans,
+}: {
+  tenantId: string;
+  status: string;
+  subscription: string | null;
+  planId: string | null;
+  billingCycle: string | null;
+  currentPeriodEnd: string | null;
+  plans: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [reason, setReason] = useState("");
   const [days, setDays] = useState(14);
+  const [selectedPlanId, setSelectedPlanId] = useState(planId ?? "");
+  const [selectedCycle, setSelectedCycle] = useState<"MONTHLY" | "ANNUAL">(billingCycle === "ANNUAL" ? "ANNUAL" : "MONTHLY");
+  const [selectedSubscriptionStatus, setSelectedSubscriptionStatus] = useState(
+    subscription && ["ACTIVE", "PAST_DUE", "GRACE", "SUSPENDED", "CANCELLED", "EXPIRED"].includes(subscription) ? subscription : "ACTIVE",
+  );
+  const [periodEnd, setPeriodEnd] = useState(currentPeriodEnd?.slice(0, 10) ?? "");
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const run = async (body: unknown, done: string) => {
     setMessage(null);
@@ -49,6 +65,43 @@ export function TenantActions({ tenantId, status, subscription }: { tenantId: st
           </div>
         </div>
       ) : null}
+      <div>
+        <h2 className="font-semibold">Change subscription plan</h2>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <select className={inputClass} value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)}>
+            <option value="">Choose a plan</option>
+            {plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+          </select>
+          <select className={inputClass} value={selectedCycle} onChange={(event) => setSelectedCycle(event.target.value as "MONTHLY" | "ANNUAL")}>
+            <option value="MONTHLY">Monthly</option>
+            <option value="ANNUAL">Annual</option>
+          </select>
+          <button
+            type="button"
+            disabled={!selectedPlanId}
+            onClick={() => void run({ action: "change-plan", planId: selectedPlanId, billingCycle: selectedCycle }, "Plan updated.")}
+            className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Update plan
+          </button>
+        </div>
+      </div>
+      <div>
+        <h2 className="font-semibold">Set subscription status</h2>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <select className={inputClass} value={selectedSubscriptionStatus} onChange={(event) => setSelectedSubscriptionStatus(event.target.value)}>
+            {["ACTIVE", "PAST_DUE", "GRACE", "SUSPENDED", "CANCELLED", "EXPIRED"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
+          </select>
+          <input aria-label="Current period or grace end date" className={inputClass} type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} />
+          <button
+            type="button"
+            onClick={() => void run({ action: "subscription-status", status: selectedSubscriptionStatus, currentPeriodEnd: periodEnd || null }, "Subscription status updated.")}
+            className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Update status
+          </button>
+        </div>
+      </div>
       {message ? <div className="sm:col-span-2"><Notice tone={message.tone}>{message.text}</Notice></div> : null}
     </section>
   );

@@ -16,12 +16,12 @@ const SECRET = `${AUTH_SECRET}:web365-platform`;
 const MAX_AGE = 8 * 60 * 60; // one working day
 
 export type PlatformRole = "PLATFORM_SUPER_ADMIN" | "PLATFORM_SUPPORT";
-export type PlatformPermission = "tenants.view" | "tenants.manage" | "support.request" | "audit.view" | "staff.manage";
+export type PlatformPermission = "tenants.view" | "tenants.manage" | "plans.manage" | "support.request" | "audit.view" | "staff.manage";
 export type PlatformActor = { id: string; name: string; email: string; role: PlatformRole };
 
 export const PLATFORM_ROLE_LABELS: Record<PlatformRole, string> = { PLATFORM_SUPER_ADMIN: "Platform Super Admin", PLATFORM_SUPPORT: "Platform Support" };
 const ROLE_PERMISSIONS: Record<PlatformRole, PlatformPermission[]> = {
-  PLATFORM_SUPER_ADMIN: ["tenants.view", "tenants.manage", "support.request", "audit.view", "staff.manage"],
+  PLATFORM_SUPER_ADMIN: ["tenants.view", "tenants.manage", "plans.manage", "support.request", "audit.view", "staff.manage"],
   PLATFORM_SUPPORT: ["tenants.view", "support.request", "audit.view"],
 };
 

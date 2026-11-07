@@ -60,12 +60,26 @@ export const validState = (input: { country: string; state: string }) => input.c
 export const registrationSchema = registrationFields.refine(validState, { path: ["state"], message: "Choose a Nigerian state." });
 
 export type RegistrationInput = z.infer<typeof registrationSchema>;
-export type PublicPlan = { id: string; name: string; description: string; monthlyPrice: number | null; annualPrice: number | null; currency: string; trialDays: number };
+export type PublicPlan = {
+  id: string;
+  name: string;
+  description: string;
+  monthlyPrice: number | null;
+  annualPrice: number | null;
+  currency: string;
+  trialDays: number;
+  maxOutlets: number | null;
+  maxStaffAccounts: number | null;
+};
 
 /** Plans offered on the registration page (active and public), cheapest first. */
 export async function publicPlans(): Promise<PublicPlan[]> {
-  const rows = await platformQuery<Array<{ id: string; name: string; description: string; monthly_price: string | null; annual_price: string | null; currency: string; trial_days: number }>>((query) =>
-    query(`SELECT id, name, description, monthly_price, annual_price, currency, trial_days FROM plans WHERE is_active AND is_public ORDER BY sort_order, name`),
+  const rows = await platformQuery<Array<{
+    id: string; name: string; description: string; monthly_price: string | null; annual_price: string | null; currency: string; trial_days: number;
+    max_outlets: number | null; max_staff_accounts: number | null;
+  }>>((query) =>
+    query(`SELECT id, name, description, monthly_price, annual_price, currency, trial_days, max_outlets, max_staff_accounts
+           FROM plans WHERE is_active AND is_public ORDER BY sort_order, name`),
   );
   return rows.map((row) => ({
     id: row.id,
@@ -75,6 +89,8 @@ export async function publicPlans(): Promise<PublicPlan[]> {
     annualPrice: row.annual_price === null ? null : Number(row.annual_price),
     currency: row.currency,
     trialDays: Number(row.trial_days),
+    maxOutlets: row.max_outlets,
+    maxStaffAccounts: row.max_staff_accounts,
   }));
 }
 
