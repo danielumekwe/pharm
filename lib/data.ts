@@ -41,6 +41,10 @@ export type User = {
   createdAt?: string;
   /** tenantId: the pharmacy that sent the invitation (absent on invitations issued before multi-tenancy). */
   invite?: { token: string; expiresAt: string; tenantId?: string } | null;
+  /** When the person confirmed they own the email address (global account field). */
+  emailVerifiedAt?: string;
+  /** Last password change; sessions issued before it are no longer accepted. */
+  passwordChangedAt?: string;
 };
 
 export type Outlet = {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Building2, Check, ChevronDown, Eye, EyeOff, Loader2, LockKeyhole, LogIn, Mail, QrCode, Smartphone, Store } from "lucide-react";
@@ -10,6 +11,8 @@ import { PharmacyIllustration } from "@/components/pharmacy-illustration";
 
 const HEAD_OFFICE = "HQ";
 const REMEMBER_KEY = "pharmerp.remembered-login";
+/** Demo-account shortcuts (with the shared demo password) appear only on demo deployments. */
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "1";
 
 
 const demoAccounts = [
@@ -70,7 +73,6 @@ function LoginFormFields({ saved }: { saved: Remembered | null }) {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(Boolean(saved));
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showReset, setShowReset] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -299,16 +301,10 @@ function LoginFormFields({ saved }: { saved: Remembered | null }) {
             />
             Remember me
           </label>
-          <button type="button" onClick={() => setShowReset((value) => !value)} className="font-medium text-green-700 hover:text-green-800">
+          <Link href="/forgot-password" className="font-medium text-green-700 hover:text-green-800">
             Forgot password?
-          </button>
+          </Link>
         </div>
-
-        {showReset ? (
-          <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
-            For security, passwords are reset by your Super Admin under <span className="font-semibold">Users</span>. Contact Head Office IT with your staff ID.
-          </p>
-        ) : null}
 
         {error ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
 
@@ -337,6 +333,11 @@ function LoginFormFields({ saved }: { saved: Remembered | null }) {
         </button>
       </form>
 
+      <p className="mt-5 text-center text-[15px] text-slate-700">
+        New to Pharmacy ERP?{" "}
+        <Link href="/register" className="font-semibold text-green-700 hover:text-green-800">Register your pharmacy</Link>
+      </p>
+
       <a
         href="/downloads/PharmaERP.apk"
         download
@@ -345,6 +346,7 @@ function LoginFormFields({ saved }: { saved: Remembered | null }) {
         <Smartphone className="h-4 w-4" /> Get the Android app
       </a>
 
+      {DEMO_MODE ? (
       <details className="mt-4 text-sm text-slate-600">
         <summary className="cursor-pointer select-none text-center text-xs font-medium uppercase tracking-[0.18em] text-slate-500 hover:text-green-700">
           Demo accounts
@@ -370,6 +372,7 @@ function LoginFormFields({ saved }: { saved: Remembered | null }) {
         </div>
         <p className="mt-2 text-center text-xs text-slate-500">Password for all demo accounts: Admin@123</p>
       </details>
+      ) : null}
 
       <PharmacyIllustration className="mx-auto mt-4 w-full max-w-[380px]" />
     </div>

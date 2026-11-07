@@ -8,10 +8,10 @@ import { AUTH_SECRET } from "@/lib/auth-secret";
 export const MOBILE_TOKEN_MAX_AGE = 60 * 60 * 12; // one working shift, like the web session
 
 /** tenantId: the pharmacy the token was issued for; the membership is re-checked on every request. */
-export type MobileToken = { id: string; outletId: string | null; tenantId: string };
+export type MobileToken = { id: string; outletId: string | null; tenantId: string; iat?: number; signedInAt?: number };
 
 export function issueMobileToken(token: MobileToken) {
-  return encode({ token: { id: token.id, outletId: token.outletId, tenantId: token.tenantId, mobile: true }, secret: AUTH_SECRET, maxAge: MOBILE_TOKEN_MAX_AGE });
+  return encode({ token: { id: token.id, outletId: token.outletId, tenantId: token.tenantId, signedInAt: Date.now(), mobile: true }, secret: AUTH_SECRET, maxAge: MOBILE_TOKEN_MAX_AGE });
 }
 
 /**
@@ -24,7 +24,7 @@ export async function bearerToken(): Promise<MobileToken | null | undefined> {
   try {
     const payload = await decode({ token: header.slice(7).trim(), secret: AUTH_SECRET });
     if (!payload || payload.mobile !== true || typeof payload.id !== "string" || typeof payload.tenantId !== "string") return null;
-    return { id: payload.id, outletId: typeof payload.outletId === "string" ? payload.outletId : null, tenantId: payload.tenantId };
+    return { id: payload.id, outletId: typeof payload.outletId === "string" ? payload.outletId : null, tenantId: payload.tenantId, iat: typeof payload.iat === "number" ? payload.iat : 0, signedInAt: typeof payload.signedInAt === "number" ? payload.signedInAt : undefined };
   } catch {
     return null;
   }

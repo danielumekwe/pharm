@@ -40,5 +40,9 @@ declare module "next-auth/jwt" {
     adminOutletId?: string | null;
     /** The pharmacy the session belongs to; checked against the live membership on every request. */
     tenantId?: string;
+    /** When the user signed in (ms); sessions older than the last password change are refused. */
+    signedInAt?: number;
+    /** Set once the session has been signed out by a password change. */
+    revoked?: boolean;
   }
 }

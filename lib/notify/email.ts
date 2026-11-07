@@ -30,6 +30,11 @@ export async function sendEmail(input: {
     if (jsonTransport()) {
       const json = nodemailer.createTransport({ jsonTransport: true });
       const info = await json.sendMail({ from: process.env.ALERT_EMAIL_FROM ?? "alerts@pharmacy-erp.local", to: input.to, subject: input.subject, text: input.text, html: input.html, attachments: input.attachments });
+      // Tests only: keep a copy of each message so a test can follow the links it contains.
+      if (process.env.EMAIL_OUTBOX_DIR) {
+        const { appendFile } = await import("node:fs/promises");
+        await appendFile(`${process.env.EMAIL_OUTBOX_DIR}/outbox.jsonl`, `${JSON.stringify({ to: input.to, subject: input.subject, text: input.text, at: new Date().toISOString() })}\n`);
+      }
       return { status: "SENT", detail: `JSON transport (test mode, not delivered) · ${info.messageId}` };
     }
     transporter ??= nodemailer.createTransport({

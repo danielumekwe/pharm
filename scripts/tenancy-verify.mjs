@@ -54,7 +54,7 @@ try {
   for (const { table_name: table } of tableRows) {
     if (IGNORED.has(table)) continue;
     const now = await scalar(table, `SELECT count(*) AS value FROM "${table}"`);
-    if (NEW_TABLES.has(table)) {
+    if (NEW_TABLES.has(table) || !(table in before)) { // created by a migration after the backup
       report.push({ table, before: "(new)", after: now, status: "new" });
       continue;
     }

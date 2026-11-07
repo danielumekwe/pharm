@@ -50,7 +50,10 @@ for (const spec of TABLES) {
     lines.push(`${pad(`${camel(link.table)}By${upperFirst(link.field)}`, `${pascal(link.table)}[]`)} @relation("${link.name}")`.trimEnd());
   }
   for (const child of spec.children ?? []) lines.push(`${pad(child.property, `${pascal(child.table)}[]`)}`.trimEnd());
-  if (spec.table === "users") lines.push(`${pad("memberships", "TenantMembership[]")}`.trimEnd());
+  if (spec.table === "users") {
+    lines.push(`${pad("memberships", "TenantMembership[]")}`.trimEnd());
+    lines.push(`${pad("authTokens", "AuthToken[]")}`.trimEnd());
+  }
   if (spec.table === "outlets") {
     lines.push(`${pad("userAssignments", "UserOutlet[]")} @relation("user_outlets_outlet_id")`);
     lines.push(`${pad("defaultForMemberships", "TenantMembership[]")} @relation("tenant_memberships_default_outlet_id")`);
@@ -131,6 +134,58 @@ ${tenantRelation("TenantMembership", "memberships", "Cascade").join("\n")}
   @@map("tenant_memberships")
 }`);
 
+models.push(`/// Single-use account token (email verification, password reset); only its SHA-256 hash is stored.
+model AuthToken {
+  id                       String         @id
+  userId                   String         @map("user_id")
+  user                     User           @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  purpose                  String         // verify_email | reset_password
+  tokenHash                String         @unique @map("token_hash")
+  expiresAt                DateTime       @map("expires_at") @db.Timestamptz(6)
+  usedAt                   DateTime?      @map("used_at") @db.Timestamptz(6)
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@map("auth_tokens")
+}`);
+
+models.push(`/// A subscription plan, edited by the platform (limits and features: phase 5).
+model Plan {
+  id                       String         @id
+  name                     String
+  description              String         @default("")
+  monthlyPrice             Decimal?       @map("monthly_price") @db.Decimal(18, 4)
+  annualPrice              Decimal?       @map("annual_price") @db.Decimal(18, 4)
+  currency                 String         @default("NGN")
+  trialDays                Int            @default(14) @map("trial_days")
+  isActive                 Boolean        @default(true) @map("is_active")
+  isPublic                 Boolean        @default(true) @map("is_public")
+  sortOrder                Int            @default(0) @map("sort_order")
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  subscriptions            Subscription[]
+
+  @@map("plans")
+}`);
+
+models.push(`/// A pharmacy's subscription (one per pharmacy).
+model Subscription {
+  id                       String         @id
+  tenantId                 String         @unique @map("tenant_id")
+  tenant                   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  planId                   String         @map("plan_id")
+  plan                     Plan           @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  status                   String         // TRIAL | ACTIVE | PAST_DUE | GRACE | SUSPENDED | CANCELLED | EXPIRED
+  billingCycle             String         @default("MONTHLY") @map("billing_cycle")
+  trialEndsAt              DateTime?      @map("trial_ends_at") @db.Timestamptz(6)
+  currentPeriodEnd         DateTime?      @map("current_period_end") @db.Timestamptz(6)
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([planId])
+  @@map("subscriptions")
+}`);
+
 models.unshift(`/// A pharmacy business on the platform. Every tenant-owned row points here.
 model Tenant {
   id                       String         @id
@@ -146,6 +201,9 @@ model Tenant {
   timeZone                 String         @default("Africa/Lagos") @map("time_zone")
   ownerUserId              String?        @map("owner_user_id")
   isDemo                   Boolean        @default(false) @map("is_demo")
+  /// Set by self-service registration; a retry with the same key returns this tenant.
+  registrationKey          String?        @unique(map: "tenants_registration_key_key") @map("registration_key")
+  subscription             Subscription?
   createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
 ${tenantBackRelations.join("\n")}

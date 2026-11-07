@@ -19,6 +19,7 @@ import {
   Landmark,
   LayoutDashboard,
   LineChart,
+  ListChecks,
   PackagePlus,
   PackageSearch,
   ReceiptText,
@@ -105,6 +106,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "System",
     items: [
+      { name: "Setup Checklist", href: "/onboarding", icon: ListChecks, keywords: "getting started onboarding business profile", requires: ["settings.manage"] },
       { name: "Notifications", href: "/notifications", icon: Bell },
       { name: "Audit Logs", href: "/audit", icon: ScrollText },
       { name: "System Settings", href: "/settings", icon: Settings },

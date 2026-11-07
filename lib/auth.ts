@@ -117,6 +117,14 @@ function signInWithinTenant(userId: string, identifier: string, outletId: string
   return { id: account.id, name: account.name, email: account.email, role: account.role, outletId: active };
 }
 
+/** True when the session (sign-in time, else token issue time) predates the account's last password change. */
+export function signedInBefore(passwordChangedAt: string | undefined, token: { signedInAt?: unknown; iat?: unknown }) {
+  if (!passwordChangedAt) return false;
+  const changed = Date.parse(passwordChangedAt);
+  if (typeof token.signedInAt === "number") return changed > token.signedInAt; // milliseconds
+  return Math.floor(changed / 1000) > (typeof token.iat === "number" ? token.iat : 0); // older tokens: seconds
+}
+
 /** Pharmacy switch requested by a signed-in user: checked against their live memberships. */
 async function switchPharmacy(token: Parameters<NonNullable<NonNullable<NextAuthOptions["callbacks"]>["jwt"]>>[0]["token"], requested: unknown) {
   if (typeof requested !== "string" || typeof token.id !== "string" || token.impersonationId) return; // not while impersonating
@@ -167,6 +175,7 @@ export const authOptions: NextAuthOptions = {
         token.role = String(signedIn.role ?? "");
         token.outletId = signedIn.outletId ? String(signedIn.outletId) : null;
         token.tenantId = signedIn.tenantId;
+        token.signedInAt = Date.now();
       }
       if (trigger === "update" && session && typeof session === "object" && "tenantId" in session) {
         await switchPharmacy(token, (session as { tenantId: unknown }).tenantId);
@@ -189,6 +198,10 @@ export const authOptions: NextAuthOptions = {
             }
           }
         }
+        // A password change signs out every session that signed in before it (all pharmacies, all devices).
+        const account = users.find((row) => row.id === token.id);
+        if (account && signedInBefore(account.passwordChangedAt, token)) token.revoked = true;
+
         // A session that has ended (returned, expired, disabled, account changed) drops back to the administrator.
         if (token.impersonationId && !activeImpersonation(token.impersonationId)) {
           token.impersonationId = undefined;
@@ -226,13 +239,15 @@ export const authOptions: NextAuthOptions = {
       // membership changes apply immediately. While impersonating, the effective user is the target.
       return runInTenant(token.tenantId ?? null, () => withDatabaseTransaction(async () => {
         const impersonation = token.impersonationId ? activeImpersonation(token.impersonationId) : null;
-        const record = impersonation ? impersonation.target : users.find((row) => row.id === token.id);
+        const own = users.find((row) => row.id === token.id);
+        const revoked = token.revoked === true || Boolean(own && signedInBefore(own.passwordChangedAt, token));
+        const record = revoked ? undefined : impersonation ? impersonation.target : own;
         if (session.user) {
           session.user.impersonation = impersonation
             ? { sessionId: impersonation.session.id, adminId: impersonation.admin.id, adminName: impersonation.admin.name, startedAt: impersonation.session.startedAt, expiresAt: impersonation.session.expiresAt }
             : null;
           session.user.email = record?.email ?? session.user.email;
-          session.user.id = record?.id ?? (typeof token.id === "string" ? token.id : "");
+          session.user.id = record?.id ?? "";
           session.user.role = record?.role ?? "";
           session.user.outletId = record ? resolveActiveOutlet(record, token.outletId ?? null) : null;
           session.user.outletIds = record ? allowedOutletIds(record) : [];

@@ -39,6 +39,7 @@ import { salesFeed } from "@/lib/erp/sales-feed";
 import type { Actor } from "@/lib/erp/types";
 import { compactMoney, dateTime, money, shortDate } from "@/lib/format";
 import { can, ROLE_LABELS } from "@/lib/rbac";
+import { onboardingStatus } from "@/lib/saas/onboarding";
 import { pageData } from "@/lib/session";
 
 type Data<K extends Dashboard["kind"]> = Extract<Dashboard, { kind: K }>["data"];
@@ -60,6 +61,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
     const greeting = `Welcome, ${actor.name.split(" ")[0]}`;
     // Read inside the page's transaction; the views below render later and only get plain values.
     const feed = dashboard.kind === "sales" || dashboard.kind === "admin" ? salesFeed(actor) : null;
+    const setup = can(actor, "settings.manage") ? await onboardingStatus(actor) : null;
 
     return (
       <DashboardShell>
@@ -71,6 +73,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
             </div>
             <p className="text-sm text-slate-400">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" })}</p>
           </div>
+          {setup && setup.completed < setup.total ? (
+            <Link href="/onboarding" data-setup-banner className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-green-200 bg-green-50 px-5 py-4 text-green-900 hover:border-green-400">
+              <span><span className="font-semibold">Finish setting up your pharmacy</span> · {setup.completed} of {setup.total} steps done</span>
+              <span className="text-sm font-semibold text-green-700">Open the checklist →</span>
+            </Link>
+          ) : null}
           {dashboard.kind === "sales" && feed ? <SalesView actor={actor} data={dashboard.data} feed={feed} /> : null}
           {dashboard.kind === "cashier" ? <CashierView data={dashboard.data} /> : null}
           {dashboard.kind === "inventory" ? <InventoryView actor={actor} data={dashboard.data} /> : null}

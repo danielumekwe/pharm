@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { connection, NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
+import { auth, signedInBefore } from "@/lib/auth";
 import { currentTenant, flushDatabase, withDatabaseTransaction } from "@/lib/db/database";
 import { users } from "@/lib/data";
 import { actorFor } from "@/lib/erp/access";
@@ -33,6 +33,7 @@ export async function getActor(): Promise<Actor | null> {
       const tenantId = activeTenantId();
       if (!tenantId) return null;
       const record = users.find((user) => user.id === bearer.id);
+      if (record && signedInBefore(record.passwordChangedAt, { iat: bearer.iat, signedInAt: bearer.signedInAt })) return null; // password changed since
       const actor = record ? actorFor(record, bearer.outletId) : null;
       return actor ? { ...actor, tenantId } : null;
     }));

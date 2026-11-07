@@ -45,6 +45,7 @@ function temporaryPassword() {
 async function setPassword(user: User, password: string) {
   user.passwordHash = hashPassword(password);
   user.password = undefined; // seeded plain-text demo password stops working
+  user.passwordChangedAt = new Date().toISOString(); // sessions signed in before this stop working
 }
 
 export function nextStaffId() {
@@ -249,7 +250,10 @@ export async function updateUser(actor: Actor, userId: string, input: UpdateUser
       if (await emailTaken(contact.email, user.id)) throw new DomainError("Another account already uses this email.");
     }
     if (contact.name !== user.name) changes.push(`name → ${contact.name}`);
-    if (contact.email !== user.email) changes.push(`email → ${contact.email}`);
+    if (contact.email !== user.email) {
+      changes.push(`email → ${contact.email}`);
+      if (contact.email.toLowerCase() !== user.email.toLowerCase()) user.emailVerifiedAt = undefined; // the new address is unconfirmed
+    }
     if (contact.phone !== (user.phone ?? "")) changes.push("phone updated");
     Object.assign(user, contact);
   }

@@ -50,7 +50,7 @@ export const TABLES: readonly TableSpec[] = [
     order: "asc",
     scope: "user",
     // Staff IDs are unique per pharmacy (on tenant_memberships), so only an index here.
-    fields: [id, ["staffId", "text", { index: true }], ["name", "text", { required: true }], ["email", "text", { required: true, unique: true }], ["phone", "text"], ["password", "text"], ["passwordHash", "text"], ["role", "text", { required: true, index: true }], ["outletId", "text", { index: true }], ["status", "text"], ["grants", "json"], ["lastLogin", "text"], ["createdAt", "text"], ["invite", "json"]],
+    fields: [id, ["staffId", "text", { index: true }], ["name", "text", { required: true }], ["email", "text", { required: true, unique: true }], ["phone", "text"], ["password", "text"], ["passwordHash", "text"], ["role", "text", { required: true, index: true }], ["outletId", "text", { index: true }], ["status", "text"], ["grants", "json"], ["lastLogin", "text"], ["createdAt", "text"], ["invite", "json"], ["emailVerifiedAt", "text"], ["passwordChangedAt", "text"]],
     children: [{ table: "user_outlets", property: "outletIds", parentColumn: "user_id", scalarColumn: "outlet_id" }],
   },
   {

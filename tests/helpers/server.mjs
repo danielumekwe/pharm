@@ -49,6 +49,7 @@ export async function startServer(extraEnv = {}) {
     ALERT_SCHEDULER: "off",
     DATABASE_APP_ROLE: "pharm_app",
     RATE_LIMIT: "off", // tests sign in many times from one address; tests/tenant-isolation.test.mjs turns it on
+    EMAIL_OUTBOX_DIR: dir, // JSON-transport emails are also written here, so tests can follow their links
     ...extraEnv,
   };
   // TEST_RUNTIME=worker runs the same tests against the OpenNext Worker inside workerd (`wrangler dev`),
@@ -100,6 +101,11 @@ export async function startServer(extraEnv = {}) {
   return {
     baseUrl,
     logs: () => output,
+    /** Emails "sent" so far (JSON transport), oldest first. */
+    outbox() {
+      const file = path.join(dir, "outbox.jsonl");
+      return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
+    },
     /** Read-only assertions against persisted PostgreSQL rows. */
     async query(sql, ...params) {
       let index = 0;

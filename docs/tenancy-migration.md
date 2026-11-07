@@ -86,3 +86,23 @@ No database change. The app now:
 - Runs scheduled jobs once per active pharmacy.
 - Stores new Cloudflare R2 files under `<tenant>/<name>`.
 - Rate-limits sign-in per server instance: 10 failed attempts per account name, and 60 requests per address, per 15 minutes. `RATE_LIMIT=off` disables it (tests only).
+
+## Phase 3 (registration and onboarding)
+
+Migration `20261108090000_registration` (rollback: `prisma/rollbacks/20261108090000_registration/down.sql`, run before the Phase 1 rollbacks):
+
+- `plans`: Starter, Professional and Enterprise, with prices left empty until Web365 sets them. 14-day trial.
+- `subscriptions`: one per pharmacy. New pharmacies start on `TRIAL`; the demo pharmacy is `ACTIVE` on Enterprise.
+- `auth_tokens`: single-use, hashed tokens for email confirmation (48 hours) and password reset (60 minutes).
+- `users.email_verified_at`: existing accounts are marked confirmed at migration time.
+- `users.password_changed_at`: sessions signed in before a password change are refused.
+- `tenants.registration_key`: makes a repeated registration return the same pharmacy.
+
+Rehearsed on 7 November 2026 on the migrated copy of the live backup: every count and total matched, the demo got its subscription, there was no Prisma drift, the rollback was lossless, and re-applying worked.
+
+Going live also needs:
+
+- [ ] `APP_URL` set to the public address, because email links point there.
+- [ ] SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `ALERT_EMAIL_FROM`). Without them, confirmation and reset emails are skipped: pharmacies can still register and use the app, but cannot confirm their email or reset a forgotten password themselves.
+- [ ] `NEXT_PUBLIC_DEMO_MODE=1` only on the demo deployment, to keep the demo-account shortcuts on the sign-in page. It is set at build time.
+- [ ] Re-run `prisma/sql/app-role.sql` after migrating, so `pharm_app` can use the new tables. It is safe to run again.
