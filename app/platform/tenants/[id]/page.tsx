@@ -6,6 +6,9 @@ import { platformCan } from "@/lib/platform/session";
 import { activePlansForAssignment } from "@/lib/platform/plans";
 import { tenantDetail } from "@/lib/platform/tenants";
 
+import { paymentsFor } from "@/lib/billing/service";
+
+import { PlatformPayments } from "./platform-payments";
 import { SupportRequests, TenantActions } from "./tenant-actions";
 
 export const metadata = { title: "Pharmacy · Web365 platform" };
@@ -13,7 +16,7 @@ export const metadata = { title: "Pharmacy · Web365 platform" };
 export default async function PlatformTenantPage({ params }: { params: Promise<{ id: string }> }) {
   const actor = await requirePlatformPage("tenants.view");
   const { id } = await params;
-  const [{ tenant, audit, grants }, plans] = await Promise.all([tenantDetail(id), activePlansForAssignment()]);
+  const [{ tenant, audit, grants }, plans, payments] = await Promise.all([tenantDetail(id), activePlansForAssignment(), paymentsFor(id)]);
   const facts: [string, string][] = [
     ["Status", `${tenant.status.toLowerCase()}${tenant.statusReason ? ` — ${tenant.statusReason}` : ""}`],
     ["Owner", tenant.owner ? `${tenant.owner.name} <${tenant.owner.email}>` : "—"],
@@ -40,6 +43,7 @@ export default async function PlatformTenantPage({ params }: { params: Promise<{
           plans={plans}
         />
       ) : null}
+      <PlatformPayments payments={payments} canRecheck={platformCan(actor, "tenants.manage")} />
       <SupportRequests tenantId={tenant.id} grants={grants} canRequest={platformCan(actor, "support.request")} />
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <h2 className="font-semibold">Platform activity for this pharmacy</h2>

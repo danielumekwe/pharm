@@ -235,7 +235,7 @@ describe("Managing pharmacies", () => {
       assert.match(dashboard.headers.get("location"), /\/subscription/);
       const page = await raw(owner, "GET", "/subscription");
       assert.equal(page.status, 200);
-      assert.match(await page.text(), /Your subscription is past_due/);
+      assert.match(await page.text(), /Your subscription is past due/);
     } finally {
       await server.query("UPDATE subscriptions SET status = 'TRIAL' WHERE tenant_id = ?", sunrise.tenantId);
     }

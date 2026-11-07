@@ -126,7 +126,11 @@ function errorResponse(error: unknown) {
  * maps errors to HTTP. A failed request is rolled back as a whole (stock, payments, audit), unless the error
  * explicitly asks to keep its changes.
  */
-export async function guarded(permission: Permission | Permission[], handler: Handler, successStatus = 200) {
+/**
+ * allowLapsed: also run when the pharmacy's subscription has lapsed (billing actions: paying is how a
+ * lapsed pharmacy gets back in).
+ */
+export async function guarded(permission: Permission | Permission[], handler: Handler, successStatus = 200, options: { allowLapsed?: boolean } = {}) {
   try {
     return await withDatabaseTransaction(async () => {
       const actor = await getActor();
@@ -135,7 +139,7 @@ export async function guarded(permission: Permission | Permission[], handler: Ha
         return NextResponse.json({ error: `Your role does not have the "${asList(permission).join(" / ")}" permission.` }, { status: 403 });
       }
       try {
-        if (!actor.support) await assertSubscriptionAccess();
+        if (!actor.support && !options.allowLapsed) await assertSubscriptionAccess();
         const result = await handler(actor);
         await flushDatabase();
         return NextResponse.json(result, { status: successStatus });

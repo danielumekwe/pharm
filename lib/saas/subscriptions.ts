@@ -15,6 +15,12 @@ type SubscriptionRow = {
   max_outlets: number | null;
   max_staff_accounts: number | null;
   features: unknown;
+  cancel_at_period_end: boolean;
+  scheduled_plan_id: string | null;
+  scheduled_plan_name: string | null;
+  scheduled_billing_cycle: string | null;
+  card_label: string | null;
+  is_demo: boolean;
 };
 
 function featureList(value: unknown): string[] | null {
@@ -27,8 +33,9 @@ export async function currentSubscription(): Promise<(SubscriptionRow & { featur
   const [row] = await platformQuery<SubscriptionRow[]>((query) =>
     query<SubscriptionRow>(
       `SELECT s.id, s.tenant_id, s.plan_id, p.name AS plan_name, s.status, s.billing_cycle,
-              s.trial_ends_at, s.current_period_end, p.max_outlets, p.max_staff_accounts, p.features
-       FROM subscriptions s JOIN plans p ON p.id = s.plan_id
+              s.trial_ends_at, s.current_period_end, p.max_outlets, p.max_staff_accounts, p.features,
+              s.cancel_at_period_end, s.scheduled_plan_id, sp.name AS scheduled_plan_name, s.scheduled_billing_cycle, s.card_label, t.is_demo
+       FROM subscriptions s JOIN plans p ON p.id = s.plan_id JOIN tenants t ON t.id = s.tenant_id LEFT JOIN plans sp ON sp.id = s.scheduled_plan_id
        WHERE s.tenant_id = $1`,
       [tenantId],
     ),
@@ -40,14 +47,20 @@ function subscriptionProblem(subscription: Awaited<ReturnType<typeof currentSubs
   if (!subscription) return "This pharmacy does not have a subscription. Contact Web365 to restore access.";
   if (subscription.status === "TRIAL") {
     if (!subscription.trial_ends_at) return "Your trial has no end date. Contact Web365 to restore access.";
-    if (new Date(subscription.trial_ends_at).getTime() <= Date.now()) return "Your free trial has ended. Contact Web365 to continue using the pharmacy.";
+    if (new Date(subscription.trial_ends_at).getTime() <= Date.now()) return "Your free trial has ended. Choose a plan on the subscription page to continue.";
+  }
+  // A paid period that has run out (not renewed, or cancelled) no longer gives access.
+  if (subscription.status === "ACTIVE" && subscription.current_period_end && new Date(subscription.current_period_end).getTime() <= Date.now()) {
+    return subscription.cancel_at_period_end
+      ? "Your subscription was cancelled and has ended. Choose a plan on the subscription page to come back."
+      : "Your subscription period has ended. Renew on the subscription page to continue.";
   }
   if (subscription.status === "GRACE") {
     if (!subscription.current_period_end) return "Your subscription grace period has no end date. Contact Web365 to restore access.";
     if (new Date(subscription.current_period_end).getTime() <= Date.now()) return "Your subscription grace period has ended. Contact Web365 to restore access.";
   }
   if (!["TRIAL", "ACTIVE", "GRACE"].includes(subscription.status)) {
-    return `Your subscription is ${subscription.status.toLowerCase()}. Contact Web365 to restore access.`;
+    return `Your subscription is ${subscription.status.toLowerCase().replaceAll("_", " ")}. Renew on the subscription page, or contact Web365.`;
   }
   return null;
 }
@@ -96,5 +109,10 @@ export async function subscriptionOverview() {
     outletCount: outlets.filter((outlet) => outlet.status !== "CLOSED").length,
     staffCount: users.filter((user) => user.status !== "DEACTIVATED").length,
     problem: subscriptionProblem(subscription),
+    planId: subscription.plan_id,
+    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    scheduledChange: subscription.scheduled_plan_id ? { planName: subscription.scheduled_plan_name ?? subscription.scheduled_plan_id, billingCycle: subscription.scheduled_billing_cycle } : null,
+    cardLabel: subscription.card_label,
+    isDemo: subscription.is_demo,
   };
 }

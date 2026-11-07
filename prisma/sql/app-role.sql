@@ -15,6 +15,9 @@ GRANT USAGE ON SCHEMA public TO pharm_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pharm_app;
 -- Tables added by later migrations (run by the owner) get the same rights.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO pharm_app;
+-- Sequences (invoice numbers).
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO pharm_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO pharm_app;
 -- The login role may switch to pharm_app (needed on PostgreSQL 16+, where creating a role does not grant it).
 GRANT pharm_app TO CURRENT_USER;
 
@@ -23,5 +26,13 @@ DO $$
 BEGIN
     IF to_regclass('platform_audit_events') IS NOT NULL THEN
         REVOKE UPDATE, DELETE, TRUNCATE ON "platform_audit_events" FROM pharm_app;
+    END IF;
+END $$;
+
+-- Financial records and the webhook log are append-only for the application (no deleting history).
+DO $$
+BEGIN
+    IF to_regclass('invoices') IS NOT NULL THEN
+        REVOKE DELETE, TRUNCATE ON "invoices", "billing_payments", "webhook_events" FROM pharm_app;
     END IF;
 END $$;

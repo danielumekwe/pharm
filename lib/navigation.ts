@@ -18,11 +18,12 @@ import {
   KeyRound,
   Landmark,
   LayoutDashboard,
-  LineChart,
   LifeBuoy,
+  LineChart,
   ListChecks,
   PackagePlus,
   PackageSearch,
+  Receipt,
   ReceiptText,
   ScrollText,
   Settings,
@@ -107,6 +108,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "System",
     items: [
+      { name: "Subscription & Billing", href: "/subscription", icon: Receipt, keywords: "plan payment invoice renew upgrade paystack", requires: ["settings.manage"] },
       { name: "Setup Checklist", href: "/onboarding", icon: ListChecks, keywords: "getting started onboarding business profile", requires: ["settings.manage"] },
       { name: "Web365 Support Access", href: "/support-access", icon: LifeBuoy, keywords: "support help web365 access", requires: ["settings.manage"] },
       { name: "Notifications", href: "/notifications", icon: Bell },

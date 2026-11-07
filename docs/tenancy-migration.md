@@ -147,3 +147,24 @@ Before applying to Neon:
 - [ ] Deploy the migration and Phase 5 code in the same window, then re-run `prisma/sql/app-role.sql`.
 - [ ] Review each plan's limits, prices, visibility and feature allowlist in `/platform/plans`; specifically decide the Enterprise quotas before selling that plan.
 - [ ] Confirm subscription statuses are monitored and manually updated while payment integration is absent.
+
+## Phase 6 (payments and billing)
+
+Migration `20261111090000_billing` (rollback: `prisma/rollbacks/20261111090000_billing/down.sql`, run before the Phase 5 rollback; it refuses once any payment has succeeded):
+
+- `billing_payments`: every payment attempt, with the server-calculated amount.
+- `invoices`: one per successful payment, numbered `W365-<year>-<6 digits>` from `invoice_number_seq`.
+- `webhook_events`: every webhook, processed once.
+- On `subscriptions`: saved card, scheduled downgrade, and cancel at period end.
+- `app-role.sql`: re-run it. It now grants the app use of the invoice sequence, and stops the app deleting payments, invoices and webhook events.
+
+Rehearsed on 8 November 2026 on the live-data copy, together with the Phase 5 migration: all counts and totals matched, there was no Prisma drift, the app cannot delete invoices, rolling back Phases 6 and 5 was lossless, and re-applying worked.
+
+### Paystack setup
+
+1. Set `PAYSTACK_SECRET_KEY` (`sk_test_…` first, then `sk_live_…`) on the app. Leave `PAYSTACK_BASE_URL` unset. Never put the key in code or the browser.
+2. In the Paystack dashboard, set the webhook URL to `https://<APP_URL>/api/billing/webhooks/paystack`. The checkout return address (`/billing/callback`) is sent with each payment.
+3. Set plan prices on the platform's Plans page. Unpriced plans cannot be bought.
+4. Test with Paystack's test cards before switching to the live key.
+
+How a payment counts: the redirect back from Paystack and the webhook both call one function that verifies the transaction with Paystack's API (status, reference, amount and currency). It then applies it once, in one database transaction, and issues the invoice. A charge for an unknown reference, or for the wrong amount, is logged in the platform audit as critical for a manual check. On a pharmacy's platform page, pending payments can be re-checked with **Check with Paystack again**.

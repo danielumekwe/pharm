@@ -616,10 +616,11 @@ class PharmDb {
    * invitations, job scheduling). `query` runs one statement in the given tenant scope (RLS), or in no
    * tenant scope when omitted, which only sees the global tables (users, tenants, tenant_memberships).
    */
-  async platform<T>(run: (query: <R = Row>(sql: string, params?: unknown[], tenantId?: string | null) => Promise<R[]>) => Promise<T>): Promise<T> {
+  async platform<T>(run: (query: <R = Row>(sql: string, params?: unknown[], tenantId?: string | null) => Promise<R[]>) => Promise<T>, options: { independent?: boolean } = {}): Promise<T> {
     // Inside a tenant transaction, reuse its connection (a second one could wait forever on a pool whose other
     // connections wait for this transaction's lock) and put the tenant scope back after each statement.
-    const active = transactions.getStore();
+    // independent: commit on its own even when the surrounding request transaction later rolls back.
+    const active = options.independent ? undefined : transactions.getStore();
     if (active) {
       const own = txTenant.getStore()?.tenantId ?? null;
       return run(async <R = Row>(sql: string, params: unknown[] = [], tenantId: string | null = null) => {
@@ -771,11 +772,11 @@ export function inDatabaseTransaction() {
 /** Platform-level lookups outside any tenant's working set (see PharmDb.platform). */
 export type PlatformQuery = <R = Row>(sql: string, params?: unknown[], tenantId?: string | null) => Promise<R[]>;
 
-export async function platformQuery<T>(run: (query: PlatformQuery) => Promise<T>): Promise<T> {
+export async function platformQuery<T>(run: (query: PlatformQuery) => Promise<T>, options: { independent?: boolean } = {}): Promise<T> {
   await initDatabase();
   const database = getDb();
   if (!database) throw new Error("Database failed to initialize.");
-  return database.platform(run);
+  return database.platform(run, options);
 }
 
 export function getDb() {

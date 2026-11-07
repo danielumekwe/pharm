@@ -225,6 +225,8 @@ model Plan {
   createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
   subscriptions            Subscription[]
+  scheduledFor             Subscription[] @relation("scheduled_plan")
+  billingPayments          BillingPayment[]
 
   @@map("plans")
 }`);
@@ -242,9 +244,90 @@ model Subscription {
   currentPeriodEnd         DateTime?      @map("current_period_end") @db.Timestamptz(6)
   createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  provider                 String?
+  providerCustomerCode     String?        @map("provider_customer_code")
+  /// Saved card authorization for later automatic renewal; never shown in the UI.
+  authorizationCode        String?        @map("authorization_code")
+  cardLabel                String?        @map("card_label")
+  scheduledPlanId          String?        @map("scheduled_plan_id")
+  scheduledPlan            Plan?          @relation("scheduled_plan", fields: [scheduledPlanId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  scheduledBillingCycle    String?        @map("scheduled_billing_cycle")
+  cancelAtPeriodEnd        Boolean        @default(false) @map("cancel_at_period_end")
 
   @@index([planId])
   @@map("subscriptions")
+}`);
+
+models.push(`/// A subscription payment attempt. The amount is calculated on the server; applied only after verification.
+model BillingPayment {
+  id                       String         @id
+  tenantId                 String         @map("tenant_id")
+  tenant                   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  provider                 String
+  reference                String         @unique
+  purpose                  String         // START | RENEWAL | UPGRADE
+  planId                   String         @map("plan_id")
+  plan                     Plan           @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  billingCycle             String         @map("billing_cycle")
+  amount                   Decimal        @db.Decimal(18, 4)
+  credit                   Decimal        @default(0) @db.Decimal(18, 4)
+  currency                 String
+  status                   String         @default("PENDING") // PENDING | SUCCESS | FAILED | ABANDONED
+  initiatedBy              String?        @map("initiated_by")
+  initiatedByName          String?        @map("initiated_by_name")
+  providerTransactionId    String?        @map("provider_transaction_id")
+  channel                  String?
+  failureReason            String?        @map("failure_reason")
+  paidAt                   DateTime?      @map("paid_at") @db.Timestamptz(6)
+  settledBy                String?        @map("settled_by")
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  invoice                  Invoice?
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("billing_payments")
+}`);
+
+models.push(`/// A paid invoice (numbers from the invoice_number_seq sequence).
+model Invoice {
+  id                       String         @id
+  number                   String         @unique
+  tenantId                 String         @map("tenant_id")
+  tenant                   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  paymentId                String         @unique @map("payment_id")
+  payment                  BillingPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  planId                   String         @map("plan_id")
+  planName                 String         @map("plan_name")
+  billingCycle             String         @map("billing_cycle")
+  periodStart              DateTime       @map("period_start") @db.Timestamptz(6)
+  periodEnd                DateTime       @map("period_end") @db.Timestamptz(6)
+  subtotal                 Decimal        @db.Decimal(18, 4)
+  credit                   Decimal        @default(0) @db.Decimal(18, 4)
+  total                    Decimal        @db.Decimal(18, 4)
+  currency                 String
+  status                   String         @default("PAID")
+  billTo                   Json           @map("bill_to")
+  issuedAt                 DateTime       @default(now()) @map("issued_at") @db.Timestamptz(6)
+
+  @@index([tenantId])
+  @@map("invoices")
+}`);
+
+models.push(`/// Every provider webhook received, processed once per (provider, event_key).
+model WebhookEvent {
+  id                       String         @id
+  provider                 String
+  eventKey                 String         @map("event_key")
+  eventType                String         @map("event_type")
+  reference                String?
+  payload                  Json
+  receivedAt               DateTime       @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt              DateTime?      @map("processed_at") @db.Timestamptz(6)
+  result                   String?
+
+  @@unique([provider, eventKey])
+  @@map("webhook_events")
 }`);
 
 models.unshift(`/// A pharmacy business on the platform. Every tenant-owned row points here.
@@ -268,6 +351,8 @@ model Tenant {
   statusReason             String?        @map("status_reason")
   statusChangedAt          DateTime?      @map("status_changed_at") @db.Timestamptz(6)
   supportGrants            SupportAccessGrant[]
+  billingPayments          BillingPayment[]
+  invoices                 Invoice[]
   authTokens               AuthToken[]
   createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
