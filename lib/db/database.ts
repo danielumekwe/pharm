@@ -5,6 +5,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { DATA_VERSION } from "@/lib/data-version";
 import { columnName, KV_TABLE, TABLES, type ChildSpec, type FieldSpec, type TableSpec } from "@/lib/db/schema";
+import { currentTenantId, DEFAULT_TENANT_ID, membershipId, PLATFORM_SCOPE, PLATFORM_STATE_KEYS } from "@/lib/saas/tenant";
 
 // PostgreSQL allows 65,535 bind parameters per statement; stay well below it.
 const MAX_BIND_PARAMETERS = 30_000;
@@ -115,6 +116,21 @@ function restoreCollections(collections: Collections) {
   if (collections.kv.rolePermissions) registry[MATRIX_KEY] = collections.kv.rolePermissions;
 }
 
+/** Global per-person tables (users, devices) are loaded for the tenant's members only. */
+function isUserScoped(spec: TableSpec) {
+  return spec.scope === "user";
+}
+
+/** Column that ties a user-scoped row to a person: users.id, devices.user_id. */
+function memberColumn(spec: TableSpec) {
+  return spec.table === "users" ? "id" : "user_id";
+}
+
+/** Scopes this transaction to one tenant for PostgreSQL Row Level Security (reset when it ends). */
+async function setTenantScope(tx: Pick<PrismaClient, "$queryRawUnsafe">, tenantId: string) {
+  await tx.$queryRawUnsafe(`SELECT set_config('app.tenant_id', $1, true)`, tenantId);
+}
+
 function replaceCollection(target: unknown, rows: Row[]) {
   if (!Array.isArray(target)) return rows;
   target.splice(0, target.length, ...rows);
@@ -162,13 +178,17 @@ class PharmDb {
     try {
       return await this.withClient((client) => client.$transaction(
         async (tx) => {
+        // The tenant comes from the server side only (see lib/saas/tenant.ts), never from the request.
+        const tenantId = currentTenantId();
+        await setTenantScope(tx, tenantId);
         await tx.$executeRawUnsafe(
-          `INSERT INTO ${KV_TABLE} (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+          `INSERT INTO ${KV_TABLE} (tenant_id, key, value) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, key) DO NOTHING`,
+          PLATFORM_SCOPE,
           LOCK_KEY,
           "{}",
         );
-        await tx.$queryRawUnsafe(`SELECT key FROM ${KV_TABLE} WHERE key = $1 FOR UPDATE`, LOCK_KEY);
-        await this.load(tx);
+        await tx.$queryRawUnsafe(`SELECT key FROM ${KV_TABLE} WHERE tenant_id = $1 AND key = $2 FOR UPDATE`, PLATFORM_SCOPE, LOCK_KEY);
+        await this.load(tx, tenantId);
         before = snapshotCollections();
         const pending: Promise<unknown>[] = [];
         const result = await transactions.run(tx, () => rollbackActions.run(actions, () => pendingWork.run(pending, async () => {
@@ -178,7 +198,7 @@ class PharmDb {
           while (pending.length) await Promise.allSettled(pending.splice(0));
           return value;
         })));
-        await this.flush(tx);
+        await this.flush(tx, tenantId);
         return result;
         },
         { maxWait: 10_000, timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
@@ -196,8 +216,12 @@ class PharmDb {
     }
   }
 
-  private async loadTable(tx: Transaction, spec: TableSpec) {
-    const rows = await tx.$queryRawUnsafe<Row[]>(`SELECT * FROM ${spec.table} ORDER BY seq ${spec.order === "desc" ? "DESC" : "ASC"}`);
+  private async loadTable(tx: Transaction, spec: TableSpec, tenantId: string) {
+    // Only this tenant's rows reach memory, so business logic cannot see another tenant's records.
+    const filter = isUserScoped(spec)
+      ? `${memberColumn(spec)} IN (SELECT user_id FROM tenant_memberships WHERE tenant_id = $1)`
+      : "tenant_id = $1";
+    const rows = await tx.$queryRawUnsafe<Row[]>(`SELECT * FROM ${spec.table} WHERE ${filter} ORDER BY seq ${spec.order === "desc" ? "DESC" : "ASC"}`, tenantId);
     const sequences = new Map<string, number>();
     const snapshot = new Map<string, string>();
     const objects = rows.map((row) => {
@@ -208,7 +232,8 @@ class PharmDb {
 
     for (const child of spec.children ?? []) {
       const childRows = await tx.$queryRawUnsafe<Row[]>(
-        `SELECT * FROM ${child.table} ORDER BY ${child.parentColumn}, position`,
+        `SELECT * FROM ${child.table} WHERE tenant_id = $1 ORDER BY ${child.parentColumn}, position`,
+        tenantId,
       );
       const byParent = new Map<string, unknown[]>();
       for (const childRow of childRows) {
@@ -226,13 +251,14 @@ class PharmDb {
     return objects;
   }
 
-  private async load(tx: Transaction) {
+  private async load(tx: Transaction, tenantId: string) {
     const { getStore } = await import("@/lib/erp/store");
     const store = getStore() as unknown as Record<string, unknown>;
     const kvRows = await tx.$queryRawUnsafe<{ key: string; value: string }[]>(
-      `SELECT key, value FROM ${KV_TABLE} WHERE key <> $1`,
-      LOCK_KEY,
+      `SELECT key, value FROM ${KV_TABLE} WHERE tenant_id = $1`,
+      tenantId,
     );
+    this.kvSnapshot.clear();
     const kv: Record<string, unknown> = {};
     for (const row of kvRows) {
       kv[row.key] = JSON.parse(row.value);
@@ -240,7 +266,7 @@ class PharmDb {
     }
 
     for (const spec of TABLES) {
-      const rows = await this.loadTable(tx, spec);
+      const rows = await this.loadTable(tx, spec, tenantId);
       if (spec.source.kind === "data") {
         const key = DATA_KEY(spec.source.key);
         registry[key] = replaceCollection(registry[key], rows);
@@ -259,7 +285,8 @@ class PharmDb {
 
   /** Writes many rows with as few round trips as possible: one multi-row INSERT per chunk. */
   private async insertRows(tx: Transaction, head: string, tail: string, rows: unknown[][]) {
-    if (!rows.length) return;
+    if (!rows.length) return 0;
+    let affected = 0;
     const perChunk = Math.max(1, Math.floor(MAX_BIND_PARAMETERS / rows[0].length));
     for (let start = 0; start < rows.length; start += perChunk) {
       const parameters: unknown[] = [];
@@ -270,31 +297,34 @@ class PharmDb {
         });
         return `(${slots.join(", ")})`;
       });
-      await tx.$executeRawUnsafe(`${head} VALUES ${tuples.join(", ")}${tail}`, ...parameters);
+      affected += await tx.$executeRawUnsafe(`${head} VALUES ${tuples.join(", ")}${tail}`, ...parameters);
     }
+    return affected;
   }
 
-  private async writeChildren(tx: Transaction, child: ChildSpec, parents: Array<[string, unknown[]]>) {
+  private async writeChildren(tx: Transaction, child: ChildSpec, parents: Array<[string, unknown[]]>, tenantId: string) {
     if (!parents.length) return;
     await tx.$executeRawUnsafe(
-      `DELETE FROM ${child.table} WHERE ${child.parentColumn} = ANY($1::text[])`,
+      `DELETE FROM ${child.table} WHERE ${child.parentColumn} = ANY($1::text[]) AND tenant_id = $2`,
       parents.map(([parentId]) => parentId),
+      tenantId,
     );
     const fields = child.scalarColumn
       ? [[child.scalarColumn, "text"] as const]
       : (child.fields ?? []).map(([field, kind]) => [columnName(field), kind] as const);
-    const columns = [child.parentColumn, "position", ...fields.map(([name]) => name)];
+    const columns = ["tenant_id", child.parentColumn, "position", ...fields.map(([name]) => name)];
     const rows: unknown[][] = [];
     for (const [parentId, items] of parents) {
       for (const [position, item] of items.entries()) {
         const values = child.scalarColumn ? [String(item)] : fields.map(([name, kind]) => toDb((item as Row)[(child.fields ?? []).find(([field]) => columnName(field) === name)?.[0] ?? name], kind));
-        rows.push([parentId, position, ...values]);
+        rows.push([tenantId, parentId, position, ...values]);
       }
     }
     await this.insertRows(tx, `INSERT INTO ${child.table} (${columns.join(", ")})`, "", rows);
   }
 
-  private async flushTable(tx: Transaction, spec: TableSpec, items: Row[]) {
+  private async flushTable(tx: Transaction, spec: TableSpec, items: Row[], tenantId: string) {
+    const tenantOwned = !isUserScoped(spec);
     const snapshot = this.snapshots.get(spec.table) ?? new Map<string, string>();
     const sequences = this.sequences.get(spec.table) ?? new Map<string, number>();
     let maxSeq = Math.max(0, ...sequences.values());
@@ -323,24 +353,46 @@ class PharmDb {
       written.push([itemId, item, serialised]);
     }
 
-    await this.insertRows(
-      tx,
-      `INSERT INTO ${spec.table} (${[...columns, "seq"].join(", ")})`,
-      ` ON CONFLICT (id) DO UPDATE SET ${updates}, seq = EXCLUDED.seq`,
-      upserts,
-    );
+    if (tenantOwned) {
+      // tenant_id is stamped here, never taken from the record. An id that already belongs to another
+      // tenant is not overwritten (the WHERE clause skips it) and the whole request is rolled back.
+      const affected = await this.insertRows(
+        tx,
+        `INSERT INTO ${spec.table} (${[...columns, "seq", "tenant_id"].join(", ")})`,
+        ` ON CONFLICT (id) DO UPDATE SET ${updates}, seq = EXCLUDED.seq WHERE ${spec.table}.tenant_id = EXCLUDED.tenant_id`,
+        upserts.map((row) => [...row, tenantId]),
+      );
+      if (affected !== upserts.length) {
+        throw new Error(`[db] ${upserts.length - affected} ${spec.table} row(s) belong to another tenant; nothing was saved.`);
+      }
+    } else {
+      await this.insertRows(
+        tx,
+        `INSERT INTO ${spec.table} (${[...columns, "seq"].join(", ")})`,
+        ` ON CONFLICT (id) DO UPDATE SET ${updates}, seq = EXCLUDED.seq`,
+        upserts,
+      );
+      if (spec.table === "users") await this.syncMemberships(tx, written.map(([, item]) => item), tenantId);
+    }
     for (const child of spec.children ?? []) {
       await this.writeChildren(
         tx,
         child,
         written.map(([itemId, item]) => [itemId, (item[child.property] as unknown[] | undefined) ?? []]),
+        tenantId,
       );
     }
     for (const [itemId, , serialised] of written) snapshot.set(itemId, serialised);
 
     const removed = [...snapshot.keys()].filter((existing) => !seen.has(existing));
     if (removed.length) {
-      await tx.$executeRawUnsafe(`DELETE FROM ${spec.table} WHERE id = ANY($1::text[])`, removed);
+      if (tenantOwned) {
+        await tx.$executeRawUnsafe(`DELETE FROM ${spec.table} WHERE id = ANY($1::text[]) AND tenant_id = $2`, removed, tenantId);
+      } else if (spec.table === "users") {
+        await this.removeMembers(tx, removed, tenantId);
+      } else {
+        await tx.$executeRawUnsafe(`DELETE FROM ${spec.table} WHERE id = ANY($1::text[])`, removed);
+      }
       for (const existing of removed) {
         snapshot.delete(existing);
         sequences.delete(existing);
@@ -351,14 +403,49 @@ class PharmDb {
     return written.length + removed.length;
   }
 
-  private async flushKv(tx: Transaction, values: Record<string, unknown>) {
+  /**
+   * Keeps each user's membership of this tenant in step with the user record (role, status, permission
+   * grants, default outlet, staff ID). Phase 2 makes the membership the source of truth.
+   */
+  private async syncMemberships(tx: Transaction, users: Row[], tenantId: string) {
+    const rows = users.map((user) => [
+      membershipId(tenantId, String(user.id)),
+      tenantId,
+      String(user.id),
+      String(user.role),
+      String(user.status ?? "ACTIVE"),
+      user.grants === undefined || user.grants === null ? null : JSON.stringify(user.grants),
+      typeof user.outletId === "string" && user.outletId ? user.outletId : null,
+      typeof user.staffId === "string" && user.staffId ? user.staffId : null,
+    ]);
+    await this.insertRows(
+      tx,
+      `INSERT INTO tenant_memberships (id, tenant_id, user_id, role, status, grants, default_outlet_id, staff_id)`,
+      ` ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status, grants = EXCLUDED.grants,` +
+        ` default_outlet_id = EXCLUDED.default_outlet_id, staff_id = EXCLUDED.staff_id, updated_at = now()`,
+      rows,
+    );
+  }
+
+  /** A user removed from this tenant loses the membership; the global account goes only when no tenant is left. */
+  private async removeMembers(tx: Transaction, userIds: string[], tenantId: string) {
+    await tx.$executeRawUnsafe(`DELETE FROM user_outlets WHERE user_id = ANY($1::text[]) AND tenant_id = $2`, userIds, tenantId);
+    await tx.$executeRawUnsafe(`DELETE FROM tenant_memberships WHERE user_id = ANY($1::text[]) AND tenant_id = $2`, userIds, tenantId);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users WHERE id = ANY($1::text[]) AND NOT EXISTS (SELECT 1 FROM tenant_memberships m WHERE m.user_id = users.id)`,
+      userIds,
+    );
+  }
+
+  private async flushKv(tx: Transaction, values: Record<string, unknown>, tenantId: string) {
     let changed = 0;
     for (const [key, value] of Object.entries(values)) {
       if (value === undefined) continue;
       const serialized = JSON.stringify(value);
       if (this.kvSnapshot.get(key) === serialized) continue;
       await tx.$executeRawUnsafe(
-        `INSERT INTO ${KV_TABLE} (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        `INSERT INTO ${KV_TABLE} (tenant_id, key, value) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value`,
+        tenantId,
         key,
         serialized,
       );
@@ -368,13 +455,13 @@ class PharmDb {
     return changed;
   }
 
-  async flush(tx: Transaction) {
+  async flush(tx: Transaction, tenantId: string = currentTenantId()) {
     const collections = snapshotCollections();
     if (!collections) return 0;
     const started = performance.now();
     let changed = 0;
-    for (const spec of TABLES) changed += await this.flushTable(tx, spec, collections.tables[spec.table] ?? []);
-    changed += await this.flushKv(tx, collections.kv);
+    for (const spec of TABLES) changed += await this.flushTable(tx, spec, collections.tables[spec.table] ?? [], tenantId);
+    changed += await this.flushKv(tx, collections.kv, tenantId);
     this.lastFlush = { at: new Date().toISOString(), changed, ms: Math.round(performance.now() - started) };
     return changed;
   }
@@ -399,12 +486,19 @@ class PharmDb {
 
   /** Reads one app_state value directly, without the write lock or loading the working set. */
   async readKv<T>(key: string): Promise<T | undefined> {
+    const tenantId = currentTenantId();
+    const scope = PLATFORM_STATE_KEYS.has(key) ? PLATFORM_SCOPE : tenantId;
     const read = async (client: Pick<PrismaClient, "$queryRawUnsafe">) => {
-      const rows = await client.$queryRawUnsafe<{ value: string }[]>(`SELECT value FROM ${KV_TABLE} WHERE key = $1`, key);
+      const rows = await client.$queryRawUnsafe<{ value: string }[]>(`SELECT value FROM ${KV_TABLE} WHERE tenant_id = $1 AND key = $2`, scope, key);
       return rows[0] ? (JSON.parse(rows[0].value) as T) : undefined;
     };
     const tx = transactions.getStore();
-    return tx ? read(tx) : this.withClient(read);
+    if (tx) return read(tx);
+    // Outside a request transaction: a short read-only transaction scoped to the tenant (RLS needs it).
+    return this.withClient((client) => client.$transaction(async (readTx) => {
+      await setTenantScope(readTx, tenantId);
+      return read(readTx);
+    }));
   }
 
   stats() {
@@ -454,12 +548,15 @@ async function createDatabase(connectionStringOverride?: string) {
     await database.transaction(async (tx) => {
       const { getStore: storeFactory } = await import("@/lib/erp/store");
       storeFactory();
+      // Counts this tenant's rows only (users: this tenant's members).
       const counts = await tx.$queryRawUnsafe<{ table_name: string; count: bigint }[]>(
         [
-          ...TABLES.map(({ table }) => `SELECT '${table}' AS table_name, COUNT(*) AS count FROM ${table}`),
-          `SELECT '${KV_TABLE}' AS table_name, COUNT(*) AS count FROM ${KV_TABLE} WHERE key <> $1`,
+          ...TABLES.map((spec) => isUserScoped(spec)
+            ? `SELECT '${spec.table}' AS table_name, COUNT(*) AS count FROM ${spec.table} WHERE ${memberColumn(spec)} IN (SELECT user_id FROM tenant_memberships WHERE tenant_id = $1)`
+            : `SELECT '${spec.table}' AS table_name, COUNT(*) AS count FROM ${spec.table} WHERE tenant_id = $1`),
+          `SELECT '${KV_TABLE}' AS table_name, COUNT(*) AS count FROM ${KV_TABLE} WHERE tenant_id = $1`,
         ].join(" UNION ALL "),
-        LOCK_KEY,
+        currentTenantId(),
       );
       const existingTables = counts.filter(({ count }) => Number(count) > 0).map(({ table_name }) => table_name);
       if (existingTables.length) {
@@ -472,9 +569,15 @@ async function createDatabase(connectionStringOverride?: string) {
       if (process.env.NODE_ENV === "production" && process.env.SEED_DEMO_DATA !== "1") {
         throw new Error("The PostgreSQL database has no ERP records. Import existing data or explicitly enable demo seeding.");
       }
+      if (currentTenantId() !== DEFAULT_TENANT_ID) throw new Error("Demo data can only be seeded into the demo tenant.");
       restoreCollections(seed);
       await tx.$executeRawUnsafe(
-        `INSERT INTO ${KV_TABLE} (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        `INSERT INTO tenants (id, slug, name, is_demo) VALUES ($1, 'demo', 'Web365 Demo Pharmacy', true) ON CONFLICT (id) DO NOTHING`,
+        DEFAULT_TENANT_ID,
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO ${KV_TABLE} (tenant_id, key, value) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value`,
+        PLATFORM_SCOPE,
         "seededAt",
         JSON.stringify(new Date().toISOString()),
       );

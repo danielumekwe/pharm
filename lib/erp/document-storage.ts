@@ -7,6 +7,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { onDatabaseRollback, runSql } from "@/lib/db/database";
+import { currentTenantId } from "@/lib/saas/tenant";
 
 export type DocumentStore = {
   kind: "r2" | "postgres";
@@ -51,15 +52,16 @@ export async function documentStore(): Promise<DocumentStore> {
   }
   return {
     kind: "postgres",
+    // Every file row is owned by the current tenant; reads and deletes only match that tenant's files.
     async put(name, bytes, mimeType) {
-      await runSql(`INSERT INTO regulatory_files (stored_name, mime_type, bytes) VALUES ($1, $2, $3)`, [name, mimeType, Buffer.from(bytes)]);
+      await runSql(`INSERT INTO regulatory_files (tenant_id, stored_name, mime_type, bytes) VALUES ($1, $2, $3, $4)`, [currentTenantId(), name, mimeType, Buffer.from(bytes)]);
     },
     async get(name) {
-      const [row] = await runSql<{ bytes: Uint8Array }>(`SELECT bytes FROM regulatory_files WHERE stored_name = $1`, [name]);
+      const [row] = await runSql<{ bytes: Uint8Array }>(`SELECT bytes FROM regulatory_files WHERE tenant_id = $1 AND stored_name = $2`, [currentTenantId(), name]);
       return row ? new Uint8Array(row.bytes) : null;
     },
     async delete(name) {
-      await runSql(`DELETE FROM regulatory_files WHERE stored_name = $1`, [name]);
+      await runSql(`DELETE FROM regulatory_files WHERE tenant_id = $1 AND stored_name = $2`, [currentTenantId(), name]);
     },
   };
 }
