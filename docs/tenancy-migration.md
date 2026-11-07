@@ -206,3 +206,27 @@ Going live also needs:
 - [ ] Enter it on **Control Centre → Email**: ZeptoMail API, the region of the ZeptoMail account (`zeptomail.com` unless the account is on another data centre), sender `support@pharmerp.name.ng`. Save, run **Test connection** (checks the token, sends nothing), then **Send test email** to a real inbox.
 - [ ] Optional: a "new pharmacy" notification address, which gets an email when a pharmacy registers.
 - [ ] Once Control Centre email settings are saved, they replace the `SMTP_*` / `ALERT_EMAIL_FROM` environment variables. Unticking **Send email with these settings** turns all email off (each email is logged as not sent).
+
+## Phase 7C (pharmacies and subscriptions)
+
+Migration `20261114090000_tenant_admin` (rollback: `prisma/rollbacks/20261114090000_tenant_admin/down.sql`, run before the 7B rollback; it drops closure requests, the adjustment ledger and refund records, and sets refunded invoices back to `PAID`):
+
+- `tenant_deletion_requests`: a pharmacy's request to close its account. At most one open request per pharmacy. The app cannot delete these records.
+- `tenants.purge_after`: for a closed pharmacy, the earliest date its data may be deleted.
+- `subscription_adjustments`: every manual subscription change, with its reason and the values before and after. It is append-only for the app.
+- `billing_refunds`: refund requests, approvals and the provider's status. The app cannot delete these records.
+- `invoices.status` may now also be `PARTIALLY_REFUNDED` or `REFUNDED`.
+
+Re-run `prisma/sql/app-role.sql` afterwards. Rehearsed on 8 November 2026 on the live-data copy: counts and totals matched, there was no drift, the rollback was lossless (0 tables differ) and re-applying worked.
+
+How it works:
+
+- **Grace period.** A paid subscription whose period has ended keeps working for the policy's grace days (default 3), unless it was cancelled. Set this on **Control Centre → Billing policy**; 0 turns grace off.
+- **Refunds.** A billing administrator requests a refund with a reason. By default a second billing administrator must approve it, and only then is it sent to Paystack. The amount can never exceed what was paid minus other refunds that are requested, pending or done. Paystack's refund webhooks only trigger a fresh check with Paystack's API. If Paystack cannot be reached, the refund stays pending with a warning to check the Paystack dashboard, so it is never sent twice. A refund does not change the subscription.
+- **Closing an account.** The pharmacy's Super Admin asks from the Subscription page, confirming with their password. A Platform Super Admin approves or declines the request. Approval closes the pharmacy (no sign-ins) and cancels its subscription. The data is kept until `purge_after` (policy default 90 days). Purging is not automatic: it is a separate step, still to be built, that will need explicit approval.
+
+Going live also needs:
+
+- [ ] In the Paystack dashboard, make sure the webhook URL also receives refund events (`refund.processed`, `refund.failed`, …). They use the same URL as payments.
+- [ ] Check the billing policy (grace days, refund approval, data retention) before the first renewal.
+- [ ] At least two people with the Billing Administrator or Platform Super Admin role, if refunds need two-person approval.

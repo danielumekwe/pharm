@@ -52,3 +52,13 @@ BEGIN
         REVOKE DELETE, TRUNCATE ON "email_deliveries" FROM pharm_app;
     END IF;
 END $$;
+
+-- Pharmacy administration records keep their history: refunds and deletion requests change status only,
+-- and the subscription adjustment ledger is append-only.
+DO $$
+BEGIN
+    IF to_regclass('billing_refunds') IS NOT NULL THEN
+        REVOKE DELETE, TRUNCATE ON "billing_refunds", "tenant_deletion_requests" FROM pharm_app;
+        REVOKE UPDATE, DELETE, TRUNCATE ON "subscription_adjustments" FROM pharm_app;
+    END IF;
+END $$;

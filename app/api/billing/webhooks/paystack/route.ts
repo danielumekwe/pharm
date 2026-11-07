@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { platformQuery } from "@/lib/db/database";
 import { paystack } from "@/lib/billing/paystack";
+import { syncRefundsForReference } from "@/lib/billing/refunds";
 import { settlePayment } from "@/lib/billing/service";
 import { recordPlatformAudit } from "@/lib/platform/audit";
 
@@ -44,6 +45,8 @@ export async function POST(request: Request) {
       }
       if (settlement.outcome === "pending") throw new Error("Payment not confirmed yet");
     }
+    // Refund events only prompt a fresh check with Paystack's API.
+    if (event.type.startsWith("refund.") && event.reference) result = await syncRefundsForReference(event.reference);
     await platformQuery((query) => query(`UPDATE webhook_events SET processed_at = now(), result = $1 WHERE id = $2`, [result, stored.id]));
     return NextResponse.json({ ok: true, result });
   } catch (error) {

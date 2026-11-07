@@ -71,6 +71,20 @@ export const SETTINGS = {
       password: z.string().min(1).max(500),
     },
   },
+  "subscriptions.policy": {
+    label: "Subscription policy",
+    permission: "billing.manage",
+    value: z.object({
+      /** Days a paid subscription keeps working after its period ends without renewal (0: none). */
+      graceDays: z.number().int().min(0).max(30),
+      /** two_person: a refund needs a second billing administrator's approval. */
+      refundApproval: z.enum(["two_person", "single"]),
+      /** Days a closed pharmacy's data is kept before it may be purged. */
+      closedRetentionDays: z.number().int().min(30).max(3650),
+    }),
+    defaults: { graceDays: 3, refundApproval: "two_person", closedRetentionDays: 90 },
+    secrets: {},
+  },
 } satisfies Record<string, Definition<z.ZodTypeAny>>;
 
 export type SettingKey = keyof typeof SETTINGS;

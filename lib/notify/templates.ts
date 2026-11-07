@@ -110,6 +110,30 @@ export const EMAIL_TEMPLATES = {
     subject: "{{pharmacy}} is active again",
     body: "Hello {{name}},\n\n{{pharmacy}} is active again on {{app_name}}. Sign in here:\n{{link}}",
   },
+  closure_requested: {
+    label: "Account closure request (to Web365)",
+    when: "a pharmacy's Super Admin asks to close the account (sent to the new-pharmacy notice address).",
+    variables: ["pharmacy", "owner_name", "owner_email", "reason", "link"],
+    required: ["pharmacy"],
+    subject: "Closure requested: {{pharmacy}}",
+    body: "{{owner_name}} ({{owner_email}}) asked to close {{pharmacy}}.\n\nReason: {{reason}}\n\nReview it in the Control Centre:\n{{link}}",
+  },
+  account_closed: {
+    label: "Account closed",
+    when: "Web365 approves a pharmacy's request to close its account.",
+    variables: ["name", "pharmacy", "purge_date"],
+    required: [],
+    subject: "{{pharmacy}} has been closed",
+    body: "Hello {{name}},\n\nAs requested, {{pharmacy}} has been closed on {{app_name}} and can no longer be signed in to.\nIts data is kept until {{purge_date}} and may be deleted after that. If this was a mistake, contact {{support_email}} before then.",
+  },
+  closure_declined: {
+    label: "Account closure declined",
+    when: "Web365 declines a pharmacy's request to close its account.",
+    variables: ["name", "pharmacy", "note"],
+    required: [],
+    subject: "About your request to close {{pharmacy}}",
+    body: "Hello {{name}},\n\nYour request to close {{pharmacy}} was not carried out: {{note}}\nThe pharmacy stays open. For questions, contact {{support_email}}.",
+  },
   system_announcement: {
     label: "System announcement",
     when: "Web365 sends an announcement (phase 7F).",
@@ -227,7 +251,7 @@ const SAMPLE: Record<string, string> = {
   name: "Ngozi Okafor", pharmacy: "Sunrise Pharmacy", link: "https://example.com/link", hours: "48", minutes: "60", days: "7", role: "Cashier",
   invited_by: "Tunde Bello", owner_name: "Ngozi Okafor", owner_email: "ngozi@example.com", plan: "Professional", state: "Lagos", country: "Nigeria",
   trial_end: "21 November 2026", days_left: "3", period_end: "8 December 2026", amount: "NGN 30,000.00", invoice_number: "W365-2026-000001",
-  reason: "Card declined", title: "Scheduled maintenance", message: "The platform will be unavailable on Sunday from 01:00 to 02:00.",
+  reason: "Card declined", purge_date: "6 February 2027", note: "Please settle the open invoice first.", title: "Scheduled maintenance", message: "The platform will be unavailable on Sunday from 01:00 to 02:00.",
 };
 
 /** Checks and renders unsaved template text with sample values. */

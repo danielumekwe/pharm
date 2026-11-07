@@ -5,9 +5,11 @@ import { useState } from "react";
 
 import type { PaymentView } from "@/lib/billing/service";
 
+import { RefundButton } from "./tenant-admin";
+
 const money = (currency: string, value: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
 
-export function PlatformPayments({ payments, canRecheck }: { payments: PaymentView[]; canRecheck: boolean }) {
+export function PlatformPayments({ payments, canRecheck, refundable, children }: { payments: PaymentView[]; canRecheck: boolean; refundable?: Record<string, number>; children?: React.ReactNode }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   async function recheck(reference: string) {
@@ -33,6 +35,7 @@ export function PlatformPayments({ payments, canRecheck }: { payments: PaymentVi
                 <td className="font-mono text-xs">{payment.reference}</td>
                 <td>
                   {payment.invoice ? <a href={`/api/platform/invoices/${payment.invoice.id}`} className="text-green-700 hover:underline">{payment.invoice.number}</a> : null}
+                  {refundable && payment.status === "SUCCESS" && payment.id in refundable ? <RefundButton paymentId={payment.id} remaining={refundable[payment.id]} currency={payment.currency} /> : null}
                   {canRecheck && payment.status === "PENDING" ? <button type="button" onClick={() => void recheck(payment.reference)} className="ml-2 rounded border border-slate-300 px-2 py-0.5 text-xs">Check with Paystack again</button> : null}
                 </td>
               </tr>
@@ -40,6 +43,7 @@ export function PlatformPayments({ payments, canRecheck }: { payments: PaymentVi
           </tbody>
         </table>
       )}
+      {children}
     </section>
   );
 }

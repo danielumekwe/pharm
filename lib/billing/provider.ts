@@ -26,6 +26,9 @@ export type CheckoutRequest = {
   metadata: Record<string, string>;
 };
 
+/** A refund as the provider reports it. pending covers queued, processing and "needs attention". */
+export type ProviderRefund = { id: string; status: "pending" | "processed" | "failed"; amountMinor: number; currency: string; detail: string };
+
 export type WebhookEvent = { type: string; key: string; reference: string | null; payload: unknown };
 
 export interface PaymentProvider {
@@ -39,6 +42,10 @@ export interface PaymentProvider {
   /** A harmless read-only call proving the keys work (connection test). */
   testConnection(): Promise<{ ok: boolean; detail: string }>;
   parseWebhook(rawBody: string): WebhookEvent;
+  /** Refunds all or part of a successful transaction (amount in minor units). */
+  refund(request: { reference: string; amountMinor: number; currency: string; note: string }): Promise<ProviderRefund>;
+  /** The current state of a refund (webhooks only trigger this check; their body is not trusted). */
+  fetchRefund(id: string): Promise<ProviderRefund>;
 }
 
 export class PaymentProviderError extends Error {

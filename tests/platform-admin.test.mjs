@@ -114,11 +114,11 @@ describe("Managing pharmacies", () => {
   test("a trial can be extended; an active subscription cannot", async () => {
     const ops = await platformSession(PLATFORM_ADMIN);
     const [before] = await server.query("SELECT trial_ends_at FROM subscriptions WHERE tenant_id = ?", sunrise.tenantId);
-    const extended = await ops.patch(`/api/platform/tenants/${sunrise.tenantId}`, { action: "extend-trial", days: 10 });
+    const extended = await ops.patch(`/api/platform/tenants/${sunrise.tenantId}`, { action: "extend-trial", days: 10, reason: "Onboarding took longer" });
     assert.equal(extended.status, 200, JSON.stringify(extended.data));
     const [after] = await server.query("SELECT trial_ends_at FROM subscriptions WHERE tenant_id = ?", sunrise.tenantId);
     assert.equal(Math.round((new Date(after.trial_ends_at) - new Date(before.trial_ends_at)) / 86_400_000), 10);
-    assert.equal((await ops.patch("/api/platform/tenants/tenant-demo", { action: "extend-trial", days: 10 })).status, 400);
+    assert.equal((await ops.patch("/api/platform/tenants/tenant-demo", { action: "extend-trial", days: 10, reason: "Not a trial" })).status, 400);
   });
 
   test("platform admins can configure plans and assign one to a pharmacy", async () => {
@@ -150,13 +150,14 @@ describe("Managing pharmacies", () => {
       action: "change-plan",
       planId: "professional",
       billingCycle: "ANNUAL",
+      reason: "Customer upgraded by phone",
     });
     assert.equal(changed.status, 200, JSON.stringify(changed.data));
     assert.deepEqual(
       await server.query("SELECT plan_id, billing_cycle FROM subscriptions WHERE tenant_id = ?", sunrise.tenantId),
       [{ plan_id: "professional", billing_cycle: "ANNUAL" }],
     );
-    await ops.patch(`/api/platform/tenants/${sunrise.tenantId}`, { action: "change-plan", planId: "starter", billingCycle: "MONTHLY" });
+    await ops.patch(`/api/platform/tenants/${sunrise.tenantId}`, { action: "change-plan", planId: "starter", billingCycle: "MONTHLY", reason: "Back to the starter plan" });
   });
 
   test("documented Starter outlet and staff limits are enforced when adding accounts", async () => {

@@ -26,18 +26,23 @@ export type TenantSummary = {
   members: number;
   outlets: number;
   owner: { name: string; email: string } | null;
+  deletionRequested: boolean;
 };
+
+export type TenantFilters = { q?: string; status?: string; subscription?: string; plan?: string; deletion?: boolean };
 
 type Row = {
   id: string; name: string; slug: string; status: string; status_reason: string | null; is_demo: boolean; created_at: Date;
   plan_id: string | null; plan_name: string | null; sub_status: string | null; billing_cycle: string | null; trial_ends_at: Date | null; current_period_end: Date | null; members: string; owner_name: string | null; owner_email: string | null;
+  deletion_requested: boolean;
 };
 
 const SELECT = `
   SELECT t.id, t.name, t.slug, t.status, t.status_reason, t.is_demo, t.created_at,
          p.id AS plan_id, p.name AS plan_name, s.status AS sub_status, s.billing_cycle, s.trial_ends_at, s.current_period_end,
          (SELECT count(*) FROM tenant_memberships m WHERE m.tenant_id = t.id AND m.status <> 'DEACTIVATED') AS members,
-         o.name AS owner_name, o.email AS owner_email
+         o.name AS owner_name, o.email AS owner_email,
+         EXISTS (SELECT 1 FROM tenant_deletion_requests d WHERE d.tenant_id = t.id AND d.status = 'REQUESTED') AS deletion_requested
   FROM tenants t
   LEFT JOIN subscriptions s ON s.tenant_id = t.id
   LEFT JOIN plans p ON p.id = s.plan_id
@@ -54,8 +59,12 @@ function summary(row: Row, outlets: number): TenantSummary {
     currentPeriodEnd: row.current_period_end ? new Date(row.current_period_end).toISOString() : null,
     members: Number(row.members), outlets,
     owner: row.owner_email ? { name: row.owner_name ?? "", email: row.owner_email } : null,
+    deletionRequested: row.deletion_requested,
   };
 }
+
+/** A LIKE pattern matching the text anywhere, with the LIKE wildcards in it taken literally. */
+const contains = (text: string) => `%${text.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
 
 /** Outlet count, read in the pharmacy's own RLS scope (a count only). */
 async function outletCount(query: PlatformQuery, tenantId: string) {
@@ -63,9 +72,28 @@ async function outletCount(query: PlatformQuery, tenantId: string) {
   return Number(row?.n ?? 0);
 }
 
-export async function listTenants(): Promise<TenantSummary[]> {
+/**
+ * Pharmacies, newest first. q matches the name, slug, business email or any member's email; the other
+ * filters match the pharmacy status, subscription status and plan exactly.
+ */
+export async function listTenants(filters: TenantFilters = {}): Promise<TenantSummary[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const q = filters.q?.trim().toLowerCase();
+  if (q) {
+    params.push(contains(q));
+    const n = `$${params.length}`;
+    where.push(`(lower(t.name) LIKE ${n} OR t.slug LIKE ${n} OR lower(coalesce(t.business_email, '')) LIKE ${n}
+      OR EXISTS (SELECT 1 FROM tenant_memberships qm JOIN users qu ON qu.id = qm.user_id WHERE qm.tenant_id = t.id AND lower(qu.email) LIKE ${n}))`);
+  }
+  for (const [column, value] of [["t.status", filters.status], ["s.status", filters.subscription], ["s.plan_id", filters.plan]] as const) {
+    if (!value) continue;
+    params.push(value);
+    where.push(`${column} = $${params.length}`);
+  }
+  if (filters.deletion) where.push(`EXISTS (SELECT 1 FROM tenant_deletion_requests d WHERE d.tenant_id = t.id AND d.status = 'REQUESTED')`);
   return platformQuery(async (query) => {
-    const rows = await query<Row>(`${SELECT} ORDER BY t.created_at DESC`);
+    const rows = await query<Row>(`${SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY t.created_at DESC LIMIT 500`, params);
     const result: TenantSummary[] = [];
     for (const row of rows) result.push(summary(row, await outletCount(query, row.id)));
     return result;
@@ -118,20 +146,6 @@ export async function setTenantStatus(actor: PlatformActor, tenantId: string, st
     : notifyPharmacyOwners(tenantId, "account_reactivated", { link: `${appUrl()}/` }, "platform");
   await notice.catch((error) => console.error("[platform] status email failed", error instanceof Error ? error.message : "error"));
   return { ok: true };
-}
-
-export async function extendTrial(actor: PlatformActor, tenantId: string, days: number) {
-  if (!Number.isInteger(days) || days < 1 || days > 90) throw new DomainError("Extend by 1 to 90 days.");
-  const [row] = await platformQuery<Array<{ name: string; status: string; trial_ends_at: Date | null }>>((query) =>
-    query(`SELECT t.name, s.status, s.trial_ends_at FROM tenants t JOIN subscriptions s ON s.tenant_id = t.id WHERE t.id = $1`, [tenantId]),
-  );
-  if (!row) throw new DomainError("Pharmacy or subscription not found.", 404);
-  if (!["TRIAL", "EXPIRED"].includes(row.status)) throw new DomainError("Only a trial (or an expired trial) can be extended.");
-  const base = Math.max(Date.now(), row.trial_ends_at ? new Date(row.trial_ends_at).getTime() : 0);
-  const ends = new Date(base + days * 86_400_000);
-  await platformQuery((query) => query(`UPDATE subscriptions SET status = 'TRIAL', trial_ends_at = $1, updated_at = now() WHERE tenant_id = $2`, [ends, tenantId]));
-  await recordPlatformAudit(platformActorRef(actor), { action: "subscription.extend-trial", targetType: "Subscription", targetId: tenantId, tenantId, summary: `Extended ${row.name}'s trial by ${days} days, to ${ends.toISOString().slice(0, 10)}` });
-  return { ok: true, trialEndsAt: ends.toISOString() };
 }
 
 /** Web365 creates a pharmacy for a customer; the owner receives a link to choose their password. */

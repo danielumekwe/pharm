@@ -340,6 +340,72 @@ model EmailTemplate {
   @@map("email_templates")
 }`);
 
+models.push(`/// A pharmacy's request to close its account (approval closes it; purging is a separate step).
+model TenantDeletionRequest {
+  id                       String         @id
+  tenantId                 String         @map("tenant_id")
+  tenant                   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requestedBy              String         @map("requested_by")
+  requestedByName          String         @map("requested_by_name")
+  requestedAt              DateTime       @default(now()) @map("requested_at") @db.Timestamptz(6)
+  reason                   String
+  status                   String         @default("REQUESTED") // REQUESTED | CANCELLED | REJECTED | APPROVED
+  decidedBy                String?        @map("decided_by")
+  decidedByName            String?        @map("decided_by_name")
+  decidedAt                DateTime?      @map("decided_at") @db.Timestamptz(6)
+  decisionNote             String?        @map("decision_note")
+  purgeAfter               DateTime?      @map("purge_after") @db.Timestamptz(6)
+
+  @@index([tenantId, requestedAt(sort: Desc)], map: "tenant_deletion_requests_tenant_idx")
+  @@map("tenant_deletion_requests")
+}`);
+
+models.push(`/// A manual subscription change by Web365 staff (append-only).
+model SubscriptionAdjustment {
+  id                       String         @id
+  tenantId                 String         @map("tenant_id")
+  tenant                   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  at                       DateTime       @default(now()) @db.Timestamptz(6)
+  actorId                  String?        @map("actor_id")
+  actorName                String         @map("actor_name")
+  kind                     String
+  before                   Json
+  after                    Json
+  reason                   String
+
+  @@index([tenantId, at(sort: Desc)], map: "subscription_adjustments_tenant_idx")
+  @@map("subscription_adjustments")
+}`);
+
+models.push(`/// A refund of a subscription payment: requested, approved, then processed by the provider.
+model BillingRefund {
+  id                       String         @id
+  tenantId                 String         @map("tenant_id")
+  tenant                   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  paymentId                String         @map("payment_id")
+  payment                  BillingPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  amount                   Decimal        @db.Decimal(18, 4)
+  currency                 String
+  reason                   String
+  status                   String         @default("REQUESTED") // REQUESTED | REJECTED | PENDING | PROCESSED | FAILED
+  requestedBy              String         @map("requested_by")
+  requestedByName          String         @map("requested_by_name")
+  requestedAt              DateTime       @default(now()) @map("requested_at") @db.Timestamptz(6)
+  decidedBy                String?        @map("decided_by")
+  decidedByName            String?        @map("decided_by_name")
+  decidedAt                DateTime?      @map("decided_at") @db.Timestamptz(6)
+  decisionNote             String?        @map("decision_note")
+  providerRefundId         String?        @unique(map: "billing_refunds_provider_refund_id_key") @map("provider_refund_id")
+  providerStatus           String?        @map("provider_status")
+  lastError                String?        @map("last_error")
+  processedAt              DateTime?      @map("processed_at") @db.Timestamptz(6)
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([paymentId], map: "billing_refunds_payment_idx")
+  @@index([status, requestedAt(sort: Desc)], map: "billing_refunds_status_idx")
+  @@map("billing_refunds")
+}`);
+
 models.push(`/// One background job run across all pharmacies.
 model PlatformJobRun {
   id                       String         @id
@@ -380,6 +446,7 @@ model BillingPayment {
   createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
   invoice                  Invoice?
+  refunds                  BillingRefund[]
 
   @@index([tenantId])
   @@index([status])
@@ -451,6 +518,11 @@ model Tenant {
   billingPayments          BillingPayment[]
   invoices                 Invoice[]
   authTokens               AuthToken[]
+  deletionRequests         TenantDeletionRequest[]
+  subscriptionAdjustments  SubscriptionAdjustment[]
+  refunds                  BillingRefund[]
+  /// Closed pharmacies: the earliest date their data may be purged.
+  purgeAfter               DateTime?      @map("purge_after") @db.Timestamptz(6)
   createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
 ${tenantBackRelations.join("\n")}

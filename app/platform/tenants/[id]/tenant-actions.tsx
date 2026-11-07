@@ -13,7 +13,7 @@ async function call(url: string, method: string, body?: unknown) {
 }
 
 export function TenantActions({
-  tenantId, status, subscription, planId, billingCycle, currentPeriodEnd, plans,
+  tenantId, status, subscription, planId, billingCycle, currentPeriodEnd, plans, canManageAccount, canManageBilling,
 }: {
   tenantId: string;
   status: string;
@@ -22,10 +22,14 @@ export function TenantActions({
   billingCycle: string | null;
   currentPeriodEnd: string | null;
   plans: { id: string; name: string }[];
+  canManageAccount: boolean;
+  canManageBilling: boolean;
 }) {
   const router = useRouter();
+  const [suspendReason, setSuspendReason] = useState("");
   const [reason, setReason] = useState("");
   const [days, setDays] = useState(14);
+  const [paidDays, setPaidDays] = useState(7);
   const [selectedPlanId, setSelectedPlanId] = useState(planId ?? "");
   const [selectedCycle, setSelectedCycle] = useState<"MONTHLY" | "ANNUAL">(billingCycle === "ANNUAL" ? "ANNUAL" : "MONTHLY");
   const [selectedSubscriptionStatus, setSelectedSubscriptionStatus] = useState(
@@ -38,71 +42,82 @@ export function TenantActions({
     try {
       await call(`/api/platform/tenants/${tenantId}`, "PATCH", body);
       setMessage({ tone: "success", text: done });
+      setReason("");
       router.refresh();
     } catch (error) {
       setMessage({ tone: "error", text: (error as Error).message });
     }
   };
+  const button = "shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50";
+  const closed = status === "CLOSED";
   return (
-    <section className="mt-6 grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:grid-cols-2">
-      <div>
-        <h2 className="font-semibold">{status === "SUSPENDED" ? "Reactivate" : "Suspend"} pharmacy</h2>
-        {status === "SUSPENDED" ? (
-          <button type="button" onClick={() => void run({ action: "reactivate" }, "Reactivated.")} className="mt-2 rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white">Reactivate</button>
-        ) : (
-          <div className="mt-2 flex gap-2">
-            <input className={inputClass} placeholder="Reason (shown to its users)" value={reason} onChange={(event) => setReason(event.target.value)} />
-            <button type="button" onClick={() => void run({ action: "suspend", reason }, "Suspended.")} className="shrink-0 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white">Suspend</button>
-          </div>
-        )}
-      </div>
-      {subscription === "TRIAL" || subscription === "EXPIRED" ? (
+    <section className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-white p-5" data-tenant-actions>
+      {canManageAccount && !closed ? (
         <div>
-          <h2 className="font-semibold">Extend trial</h2>
-          <div className="mt-2 flex gap-2">
-            <input type="number" min={1} max={90} className={inputClass} value={days} onChange={(event) => setDays(Number(event.target.value))} />
-            <button type="button" onClick={() => void run({ action: "extend-trial", days }, "Trial extended.")} className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Extend</button>
+          <h2 className="font-semibold">{status === "SUSPENDED" ? "Reactivate" : "Suspend"} pharmacy</h2>
+          {status === "SUSPENDED" ? (
+            <button type="button" onClick={() => void run({ action: "reactivate" }, "Reactivated.")} className="mt-2 rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white">Reactivate</button>
+          ) : (
+            <div className="mt-2 flex gap-2">
+              <input className={inputClass} placeholder="Reason (shown to its users)" value={suspendReason} onChange={(event) => setSuspendReason(event.target.value)} />
+              <button type="button" onClick={() => void run({ action: "suspend", reason: suspendReason }, "Suspended.")} className="shrink-0 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white">Suspend</button>
+            </div>
+          )}
+        </div>
+      ) : null}
+      {canManageBilling && !closed ? (
+        <div className="border-t border-slate-100 pt-4" data-subscription-adjustments>
+          <h2 className="font-semibold">Adjust the subscription</h2>
+          <p className="text-sm text-slate-600">Every change needs a reason. It is kept with the values before and after, below.</p>
+          <input className={`${inputClass} mt-2`} placeholder="Reason for the change (required)" value={reason} maxLength={300} onChange={(event) => setReason(event.target.value)} data-adjust-reason />
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {subscription === "TRIAL" || subscription === "EXPIRED" ? (
+              <div>
+                <h3 className="text-sm font-semibold">Extend trial (days)</h3>
+                <div className="mt-1 flex gap-2">
+                  <input type="number" min={1} max={90} className={inputClass} value={days} onChange={(event) => setDays(Number(event.target.value))} />
+                  <button type="button" onClick={() => void run({ action: "extend-trial", days, reason }, "Trial extended.")} className={button}>Extend</button>
+                </div>
+              </div>
+            ) : null}
+            {subscription && ["ACTIVE", "GRACE", "PAST_DUE"].includes(subscription) ? (
+              <div>
+                <h3 className="text-sm font-semibold">Add free days to the paid period</h3>
+                <div className="mt-1 flex gap-2">
+                  <input type="number" min={1} max={366} className={inputClass} value={paidDays} onChange={(event) => setPaidDays(Number(event.target.value))} />
+                  <button type="button" onClick={() => void run({ action: "extend-period", days: paidDays, reason }, "Paid period extended.")} className={button}>Add days</button>
+                </div>
+              </div>
+            ) : null}
+            <div>
+              <h3 className="text-sm font-semibold">Plan</h3>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <select className={inputClass} value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)}>
+                  <option value="">Choose a plan</option>
+                  {plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                </select>
+                <select className={inputClass} value={selectedCycle} onChange={(event) => setSelectedCycle(event.target.value as "MONTHLY" | "ANNUAL")}>
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="ANNUAL">Annual</option>
+                </select>
+                <button type="button" disabled={!selectedPlanId} onClick={() => void run({ action: "change-plan", planId: selectedPlanId, billingCycle: selectedCycle, reason }, "Plan updated.")} className={button}>Change plan</button>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">Status and period end</h3>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <select className={inputClass} value={selectedSubscriptionStatus} onChange={(event) => setSelectedSubscriptionStatus(event.target.value)}>
+                  {["ACTIVE", "PAST_DUE", "GRACE", "SUSPENDED", "CANCELLED", "EXPIRED"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ").toLowerCase()}</option>)}
+                </select>
+                <input aria-label="Current period or grace end date" className={inputClass} type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} />
+                <button type="button" onClick={() => void run({ action: "subscription-status", status: selectedSubscriptionStatus, currentPeriodEnd: periodEnd || null, reason }, "Subscription status updated.")} className={button}>Set status</button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
-      <div>
-        <h2 className="font-semibold">Change subscription plan</h2>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <select className={inputClass} value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)}>
-            <option value="">Choose a plan</option>
-            {plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
-          </select>
-          <select className={inputClass} value={selectedCycle} onChange={(event) => setSelectedCycle(event.target.value as "MONTHLY" | "ANNUAL")}>
-            <option value="MONTHLY">Monthly</option>
-            <option value="ANNUAL">Annual</option>
-          </select>
-          <button
-            type="button"
-            disabled={!selectedPlanId}
-            onClick={() => void run({ action: "change-plan", planId: selectedPlanId, billingCycle: selectedCycle }, "Plan updated.")}
-            className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            Update plan
-          </button>
-        </div>
-      </div>
-      <div>
-        <h2 className="font-semibold">Set subscription status</h2>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <select className={inputClass} value={selectedSubscriptionStatus} onChange={(event) => setSelectedSubscriptionStatus(event.target.value)}>
-            {["ACTIVE", "PAST_DUE", "GRACE", "SUSPENDED", "CANCELLED", "EXPIRED"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
-          </select>
-          <input aria-label="Current period or grace end date" className={inputClass} type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} />
-          <button
-            type="button"
-            onClick={() => void run({ action: "subscription-status", status: selectedSubscriptionStatus, currentPeriodEnd: periodEnd || null }, "Subscription status updated.")}
-            className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-          >
-            Update status
-          </button>
-        </div>
-      </div>
-      {message ? <div className="sm:col-span-2"><Notice tone={message.tone}>{message.text}</Notice></div> : null}
+      {closed ? <p className="text-sm text-slate-600">This pharmacy is closed. Its account and subscription can no longer be changed here.</p> : null}
+      {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
     </section>
   );
 }

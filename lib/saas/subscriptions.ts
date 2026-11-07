@@ -21,7 +21,12 @@ type SubscriptionRow = {
   scheduled_billing_cycle: string | null;
   card_label: string | null;
   is_demo: boolean;
+  grace_days: number | null;
 };
+
+const DAY = 86_400_000;
+/** Default grace days when the subscription policy has never been saved (matches its defaults). */
+const DEFAULT_GRACE_DAYS = 3;
 
 function featureList(value: unknown): string[] | null {
   return Array.isArray(value) ? value.filter((feature): feature is string => typeof feature === "string") : null;
@@ -34,7 +39,8 @@ export async function currentSubscription(): Promise<(SubscriptionRow & { featur
     query<SubscriptionRow>(
       `SELECT s.id, s.tenant_id, s.plan_id, p.name AS plan_name, s.status, s.billing_cycle,
               s.trial_ends_at, s.current_period_end, p.max_outlets, p.max_staff_accounts, p.features,
-              s.cancel_at_period_end, s.scheduled_plan_id, sp.name AS scheduled_plan_name, s.scheduled_billing_cycle, s.card_label, t.is_demo
+              s.cancel_at_period_end, s.scheduled_plan_id, sp.name AS scheduled_plan_name, s.scheduled_billing_cycle, s.card_label, t.is_demo,
+              (SELECT (ps.value->>'graceDays')::int FROM platform_settings ps WHERE ps.key = 'subscriptions.policy') AS grace_days
        FROM subscriptions s JOIN plans p ON p.id = s.plan_id JOIN tenants t ON t.id = s.tenant_id LEFT JOIN plans sp ON sp.id = s.scheduled_plan_id
        WHERE s.tenant_id = $1`,
       [tenantId],
@@ -43,14 +49,27 @@ export async function currentSubscription(): Promise<(SubscriptionRow & { featur
   return row ? { ...row, features: featureList(row.features) } : null;
 }
 
+/** Automatic grace: the end of the days a lapsed, uncancelled paid period keeps working (null: none). */
+function graceUntil(subscription: { status: string; current_period_end: Date | null; cancel_at_period_end: boolean; grace_days: number | null }) {
+  if (subscription.status !== "ACTIVE" || !subscription.current_period_end || subscription.cancel_at_period_end) return null;
+  const days = subscription.grace_days ?? DEFAULT_GRACE_DAYS;
+  const end = new Date(subscription.current_period_end).getTime();
+  return days > 0 && end <= Date.now() ? new Date(end + days * DAY) : null;
+}
+const inGrace = (subscription: Parameters<typeof graceUntil>[0]) => {
+  const until = graceUntil(subscription);
+  return Boolean(until && until.getTime() > Date.now());
+};
+
 function subscriptionProblem(subscription: Awaited<ReturnType<typeof currentSubscription>>) {
   if (!subscription) return "This pharmacy does not have a subscription. Contact Web365 to restore access.";
   if (subscription.status === "TRIAL") {
     if (!subscription.trial_ends_at) return "Your trial has no end date. Contact Web365 to restore access.";
     if (new Date(subscription.trial_ends_at).getTime() <= Date.now()) return "Your free trial has ended. Choose a plan on the subscription page to continue.";
   }
-  // A paid period that has run out (not renewed, or cancelled) no longer gives access.
-  if (subscription.status === "ACTIVE" && subscription.current_period_end && new Date(subscription.current_period_end).getTime() <= Date.now()) {
+  // A paid period that has run out (not renewed, or cancelled) no longer gives access, after the grace days
+  // of the subscription policy (none for a cancelled subscription).
+  if (subscription.status === "ACTIVE" && subscription.current_period_end && new Date(subscription.current_period_end).getTime() <= Date.now() && !inGrace(subscription)) {
     return subscription.cancel_at_period_end
       ? "Your subscription was cancelled and has ended. Choose a plan on the subscription page to come back."
       : "Your subscription period has ended. Renew on the subscription page to continue.";
@@ -114,5 +133,7 @@ export async function subscriptionOverview() {
     scheduledChange: subscription.scheduled_plan_id ? { planName: subscription.scheduled_plan_name ?? subscription.scheduled_plan_id, billingCycle: subscription.scheduled_billing_cycle } : null,
     cardLabel: subscription.card_label,
     isDemo: subscription.is_demo,
+    /** Set while a lapsed paid period is still working thanks to the grace days. */
+    graceUntil: inGrace(subscription) ? graceUntil(subscription)!.toISOString() : null,
   };
 }

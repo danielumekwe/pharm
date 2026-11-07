@@ -3,7 +3,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { paystackConfig } from "@/lib/billing/config";
-import { PaymentProviderError, type CheckoutRequest, type PaymentProvider, type VerifiedPayment, type WebhookEvent } from "@/lib/billing/provider";
+import { PaymentProviderError, type CheckoutRequest, type PaymentProvider, type ProviderRefund, type VerifiedPayment, type WebhookEvent } from "@/lib/billing/provider";
 
 const baseUrl = () => (process.env.PAYSTACK_BASE_URL || "https://api.paystack.co").replace(/\/$/, "");
 const secret = async () => (await paystackConfig()).secretKey;
@@ -38,6 +38,13 @@ type PaystackTransaction = {
   customer?: { customer_code?: string | null } | null;
   authorization?: { authorization_code?: string; card_type?: string; last4?: string; exp_month?: string; exp_year?: string; bank?: string; reusable?: boolean } | null;
 };
+
+type PaystackRefund = { id: number | string; status: string; amount: number; currency: string; merchant_note?: string | null };
+
+function refundView(data: PaystackRefund): ProviderRefund {
+  const status = data.status === "processed" ? "processed" : data.status === "failed" ? "failed" : "pending";
+  return { id: String(data.id), status, amountMinor: Number(data.amount), currency: data.currency, detail: `Paystack: ${data.status}` };
+}
 
 function normaliseStatus(status: string): VerifiedPayment["status"] {
   if (status === "success") return "success";
@@ -106,10 +113,27 @@ export const paystack: PaymentProvider = {
   },
 
   parseWebhook(rawBody: string): WebhookEvent {
-    const payload = JSON.parse(rawBody) as { event?: string; data?: { id?: number | string; reference?: string } };
+    const payload = JSON.parse(rawBody) as { event?: string; data?: { id?: number | string; reference?: string; transaction_reference?: string; refund_reference?: string; status?: string } };
     const type = String(payload.event ?? "unknown");
+    if (type.startsWith("refund.")) {
+      // Refund events carry the refunded transaction's reference (and no transaction id).
+      const reference = payload.data?.transaction_reference ?? null;
+      return { type, key: `${type}:${payload.data?.refund_reference ?? payload.data?.id ?? reference ?? "none"}:${payload.data?.status ?? ""}`, reference, payload };
+    }
     const reference = payload.data?.reference ?? null;
     return { type, key: `${type}:${payload.data?.id ?? reference ?? "none"}`, reference, payload };
+  },
+
+  async refund(request) {
+    const data = await call<PaystackRefund>("/refund", {
+      method: "POST",
+      body: JSON.stringify({ transaction: request.reference, amount: request.amountMinor, currency: request.currency, merchant_note: request.note.slice(0, 200) }),
+    });
+    return refundView(data);
+  },
+
+  async fetchRefund(id: string) {
+    return refundView(await call<PaystackRefund>(`/refund/${encodeURIComponent(id)}`));
   },
 };
 

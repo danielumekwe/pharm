@@ -128,65 +128,25 @@ export async function activePlansForAssignment() {
   return rows;
 }
 
-export async function changeTenantPlan(actor: PlatformActor, tenantId: string, planId: string, billingCycle: "MONTHLY" | "ANNUAL") {
-  const [plan] = await platformQuery<Array<{ name: string }>>((query) =>
-    query(`SELECT name FROM plans WHERE id = $1 AND is_active`, [planId]),
-  );
-  if (!plan) throw new DomainError("Choose an active plan.", 400);
-  const [subscription] = await platformQuery<Array<{ id: string; plan_name: string; tenant_name: string }>>((query) =>
-    query(
-      `SELECT s.id, p.name AS plan_name, t.name AS tenant_name
-       FROM subscriptions s JOIN plans p ON p.id = s.plan_id JOIN tenants t ON t.id = s.tenant_id
-       WHERE s.tenant_id = $1`,
-      [tenantId],
-    ),
-  );
-  if (!subscription) throw new DomainError("Pharmacy or subscription not found.", 404);
-  await platformQuery((query) =>
-    query(`UPDATE subscriptions SET plan_id = $1, billing_cycle = $2, updated_at = now() WHERE tenant_id = $3`, [planId, billingCycle, tenantId]),
-  );
-  await recordPlatformAudit(platformActorRef(actor), {
-    action: "subscription.change-plan",
-    targetType: "Subscription",
-    targetId: subscription.id,
-    tenantId,
-    summary: `Changed ${subscription.tenant_name}'s plan from ${subscription.plan_name} to ${plan.name} (${billingCycle.toLowerCase()})`,
-  });
-  return { ok: true };
-}
+export const planCreateSchema = z.object({
+  id: z.string().trim().toLowerCase().regex(/^[a-z][a-z0-9-]{1,39}$/, "Use 2 to 40 lowercase letters, digits or dashes, starting with a letter."),
+  plan: planUpdateSchema,
+});
 
-export async function setTenantSubscriptionStatus(
-  actor: PlatformActor,
-  tenantId: string,
-  status: "ACTIVE" | "PAST_DUE" | "GRACE" | "SUSPENDED" | "CANCELLED" | "EXPIRED",
-  currentPeriodEnd: string | null,
-) {
-  const periodEnd = currentPeriodEnd ? new Date(`${currentPeriodEnd}T23:59:59.999Z`) : null;
-  if (currentPeriodEnd && Number.isNaN(periodEnd?.getTime())) throw new DomainError("Choose a valid period end date.");
-  if (status === "GRACE" && (!periodEnd || periodEnd.getTime() <= Date.now())) {
-    throw new DomainError("Set a future grace-period end date.");
-  }
-  const [subscription] = await platformQuery<Array<{ id: string; status: string; tenant_name: string; current_period_end: Date | null }>>((query) =>
+/** A new plan. Its id is permanent (subscriptions and invoices refer to it); everything else can change. */
+export async function createPlan(actor: PlatformActor, input: z.infer<typeof planCreateSchema>) {
+  const { id, plan } = input;
+  const inserted = await platformQuery<Array<{ id: string }>>((query) =>
     query(
-      `SELECT s.id, s.status, s.current_period_end, t.name AS tenant_name FROM subscriptions s
-       JOIN tenants t ON t.id = s.tenant_id WHERE s.tenant_id = $1`,
-      [tenantId],
+      `INSERT INTO plans (id, name, description, monthly_price, annual_price, currency, trial_days, max_outlets, max_staff_accounts, features, is_active, is_public, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13) ON CONFLICT (id) DO NOTHING RETURNING id`,
+      [id, plan.name, plan.description, plan.monthlyPrice, plan.annualPrice, plan.currency, plan.trialDays, plan.maxOutlets, plan.maxStaffAccounts, plan.features === null ? null : JSON.stringify(plan.features), plan.isActive, plan.isPublic, plan.sortOrder],
     ),
   );
-  if (!subscription) throw new DomainError("Pharmacy subscription not found.", 404);
-  if (subscription.status === status && (subscription.current_period_end?.getTime() ?? 0) === (periodEnd?.getTime() ?? 0)) {
-    throw new DomainError(`Subscription is already ${status.toLowerCase()}.`);
-  }
-  await platformQuery((query) =>
-    query(`UPDATE subscriptions SET status = $1, current_period_end = $2, updated_at = now() WHERE tenant_id = $3`, [status, periodEnd, tenantId]),
-  );
+  if (!inserted.length) throw new DomainError(`A plan with the id "${id}" already exists.`, 409);
   await recordPlatformAudit(platformActorRef(actor), {
-    action: "subscription.status",
-    targetType: "Subscription",
-    targetId: subscription.id,
-    tenantId,
-    severity: ["PAST_DUE", "SUSPENDED", "CANCELLED", "EXPIRED"].includes(status) ? "warning" : "info",
-    summary: `Changed ${subscription.tenant_name}'s subscription ${subscription.status} → ${status}`,
+    action: "plan.create", targetType: "Plan", targetId: id,
+    summary: `Created plan ${plan.name} (${id}): monthly ${plan.monthlyPrice ?? "unset"} ${plan.currency}, annual ${plan.annualPrice ?? "unset"} ${plan.currency}, ${plan.maxOutlets ?? "unlimited"} outlets, ${plan.maxStaffAccounts ?? "unlimited"} staff accounts, ${plan.isPublic ? "public" : "hidden"}${plan.isActive ? "" : ", inactive"}`,
   });
-  return { ok: true };
+  return { ok: true, id };
 }

@@ -3,7 +3,7 @@
 import { createServer } from "node:http";
 
 export async function startFakePaystack(secret) {
-  const state = { secret, transactions: new Map(), initialized: [], requests: [] };
+  const state = { secret, transactions: new Map(), initialized: [], requests: [], refunds: new Map(), refundStatus: "pending", refundError: null, refundUnreachable: false };
   const server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => (body += chunk));
@@ -20,6 +20,21 @@ export async function startFakePaystack(secret) {
         state.initialized.push(input);
         state.transactions.set(input.reference, { ...input, status: "ongoing", id: state.transactions.size + 1000 });
         return send(200, { status: true, data: { authorization_url: `${state.url}/checkout/${input.reference}`, access_code: "AC", reference: input.reference } });
+      }
+      if (request.method === "POST" && request.url === "/refund") {
+        if (state.refundUnreachable) return request.socket.destroy();
+        const input = JSON.parse(body);
+        if (state.refundError) return send(400, { status: false, message: state.refundError });
+        const transaction = state.transactions.get(input.transaction);
+        if (!transaction || transaction.status !== "success") return send(400, { status: false, message: "Transaction not found or not successful" });
+        const refund = { id: 7000 + state.refunds.size, status: state.refundStatus, amount: input.amount, currency: input.currency ?? transaction.currency, transaction: input.transaction, merchant_note: input.merchant_note };
+        state.refunds.set(String(refund.id), refund);
+        return send(200, { status: true, message: "Refund has been queued for processing", data: refund });
+      }
+      const refundMatch = request.url.match(/^\/refund\/(\d+)$/);
+      if (request.method === "GET" && refundMatch) {
+        const refund = state.refunds.get(refundMatch[1]);
+        return refund ? send(200, { status: true, data: refund }) : send(404, { status: false, message: "Refund not found" });
       }
       const match = request.url.match(/^\/transaction\/verify\/(.+)$/);
       if (request.method === "GET" && match) {

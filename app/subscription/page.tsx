@@ -8,7 +8,10 @@ import { getActor } from "@/lib/session";
 import { publicPlans } from "@/lib/saas/registration";
 import { subscriptionOverview } from "@/lib/saas/subscriptions";
 
+import { latestClosure } from "@/lib/platform/tenant-admin";
+
 import { BillingActions, PaymentHistory } from "./billing-actions";
+import { CloseAccount } from "./close-account";
 
 export const metadata = { title: "Subscription and billing" };
 
@@ -21,7 +24,7 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
   return withDatabaseTransaction(async () => {
     const actor = await getActor();
     if (!actor?.tenantId) redirect("/");
-    const [subscription, plans, payments] = await Promise.all([subscriptionOverview(), publicPlans(), paymentsFor(actor.tenantId)]);
+    const [subscription, plans, payments, closure] = await Promise.all([subscriptionOverview(), publicPlans(), paymentsFor(actor.tenantId), latestClosure(actor.tenantId)]);
     const canManage = actor.permissions.includes("settings.manage") && !actor.support;
     const canSeeBilling = canManage || actor.permissions.includes("finance.view");
     const pharmacy = currentTenant()?.name ?? "Your pharmacy";
@@ -38,6 +41,7 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
 
         {paid === "1" ? <p role="status" className="rounded-xl border border-green-200 bg-green-50 p-4 text-green-900">Payment confirmed. Thank you.</p> : null}
         {subscription?.problem ? <p role="alert" data-subscription-problem className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">{subscription.problem}</p> : null}
+        {subscription?.graceUntil ? <p role="alert" data-subscription-grace className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">Your subscription period has ended. The pharmacy keeps working until {new Date(subscription.graceUntil).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}; renew before then to avoid interruption.</p> : null}
 
         {subscription ? (
           <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 sm:grid-cols-3" data-subscription-status={subscription.status}>
@@ -67,6 +71,8 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
         ) : null}
 
         {canSeeBilling ? <PaymentHistory payments={payments} /> : null}
+
+        {actor.role === "SUPER_ADMIN" && !actor.support && !subscription?.isDemo ? <CloseAccount pharmacy={pharmacy} request={closure} /> : null}
 
         {subscription?.problem ? <Link href="/" className="inline-block text-sm text-green-700 hover:underline">Back to sign in</Link> : null}
       </main>
