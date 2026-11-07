@@ -6,6 +6,7 @@ import { flushDatabase, withDatabaseTransaction } from "@/lib/db/database";
 import { users } from "@/lib/data";
 import { actorFor } from "@/lib/erp/access";
 import { activeImpersonation } from "@/lib/erp/impersonation";
+import { bearerToken } from "@/lib/mobile-token";
 import { DomainError } from "@/lib/erp/services";
 import type { Actor } from "@/lib/erp/types";
 import { canAny, type Permission } from "@/lib/rbac";
@@ -13,6 +14,15 @@ import { canAny, type Permission } from "@/lib/rbac";
 /** The signed-in user, resolved from the live user record (role, status, outlets, permissions). */
 export async function getActor(): Promise<Actor | null> {
   await connection();
+  const bearer = await bearerToken();
+  if (bearer !== undefined) {
+    // Native app: a signed mobile token instead of the browser session cookie. No impersonation on mobile.
+    if (!bearer) return null;
+    return withDatabaseTransaction(async () => {
+      const record = users.find((user) => user.id === bearer.id);
+      return record ? actorFor(record, bearer.outletId) : null;
+    });
+  }
   return withDatabaseTransaction(async () => {
     const session = await auth();
     const id = session?.user?.id;

@@ -15,6 +15,11 @@ function outletLabel(id: string | null) {
   return id ? getOutletById(id)?.name ?? id : "Head Office (all outlets)";
 }
 
+/** Shared by the web sign-in and the mobile app's token login. Returns null on bad credentials; throws with a user-facing message otherwise. */
+export async function authorizeCredentials(credentials: unknown) {
+  return authorizeImpl(credentials);
+}
+
 export const authOptions: NextAuthOptions = {
   secret: AUTH_SECRET,
   session: {
@@ -32,7 +37,13 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
         outletId: { label: "Outlet", type: "text" },
       },
-      authorize: async (credentials) => {
+      authorize: (credentials) => authorizeImpl(credentials),
+    }),
+  ],
+  callbacks: {} as NextAuthOptions["callbacks"],
+};
+
+async function authorizeImpl(credentials: unknown) {
         const parsed = z
           .object({
             identifier: z.string().trim().min(3).max(120),
@@ -94,10 +105,9 @@ export const authOptions: NextAuthOptions = {
         );
 
         return { id: account.id, name: account.name, email: account.email, role: account.role, outletId: active };
-      },
-    }),
-  ],
-  callbacks: {
+}
+
+authOptions.callbacks = {
     async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = String(user.id);
@@ -173,7 +183,6 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
-  },
 };
 
 export default NextAuth(authOptions);
