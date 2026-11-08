@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { NAV_LINKS } from "./content";
 
@@ -48,6 +49,7 @@ export function SiteNav({ logo, cta, signedIn }: Props) {
   const account = signedIn ? { label: "Dashboard", href: "/dashboard" } : { label: "Login", href: "/login" };
 
   return (
+    <>
     <header className={`sticky top-0 z-40 border-b bg-white/90 backdrop-blur transition-colors ${scrolled ? "border-slate-200 shadow-[0_1px_12px_rgba(15,42,82,0.06)]" : "border-transparent"}`}>
       <nav aria-label="Main" className="mx-auto flex h-[4.5rem] max-w-7xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8">
         <a href="#top" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue" aria-label="PharmaERP home">{logo}</a>
@@ -84,7 +86,10 @@ export function SiteNav({ logo, cta, signedIn }: Props) {
         </button>
       </nav>
 
-      {open ? (
+    </header>
+
+      {/* Rendered into <body>: the header's backdrop blur would otherwise trap a fixed panel inside the header bar. */}
+      {open ? createPortal(
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu" id="landing-drawer">
           <button type="button" aria-label="Close menu" className="absolute inset-0 bg-brand-navy/40" onClick={() => setOpen(false)} />
           <div className="absolute inset-y-0 right-0 flex w-[min(20rem,85vw)] flex-col bg-white shadow-2xl">
@@ -112,8 +117,9 @@ export function SiteNav({ logo, cta, signedIn }: Props) {
               <Link href={account.href} className="rounded-lg border border-slate-200 px-4 py-3 text-center font-semibold text-brand-navy hover:bg-brand-sky">{account.label}</Link>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
-    </header>
+    </>
   );
 }
