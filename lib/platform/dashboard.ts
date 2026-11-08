@@ -123,3 +123,59 @@ export async function platformDashboard() {
     generatedAt: new Date().toISOString(),
   };
 }
+
+/** The richer dashboard panels, all from the database: revenue by month, users, recent pharmacies and activity. */
+export async function dashboardExtras() {
+  return platformQuery(async (query) => {
+    const revenue = await query<{ month: Date; currency: string; amount: Count; count: Count }>(`
+      SELECT date_trunc('month', coalesce(paid_at, created_at)) AS month, currency, sum(amount) AS amount, count(*) AS count
+      FROM billing_payments WHERE status = 'SUCCESS' AND coalesce(paid_at, created_at) >= date_trunc('month', now()) - interval '5 months'
+      GROUP BY 1, 2 ORDER BY 1`);
+    const [users] = await query<{ total: Count; new_month: Count }>(`
+      SELECT count(*) AS total, count(*) FILTER (WHERE m.created_at >= date_trunc('month', now())) AS new_month
+      FROM tenant_memberships m JOIN tenants t ON t.id = m.tenant_id WHERE NOT t.is_demo AND m.status = 'ACTIVE' AND t.status = 'ACTIVE'`);
+    const [pharmacies] = await query<{ new_month: Count }>(`SELECT count(*) AS new_month FROM tenants WHERE NOT is_demo AND created_at >= date_trunc('month', now())`);
+    const recent = await query<{ id: string; name: string; status: string; plan: string | null; sub_status: string | null; ends: Date | null }>(`
+      SELECT t.id, t.name, t.status, p.name AS plan, s.status AS sub_status, CASE WHEN s.status = 'TRIAL' THEN s.trial_ends_at ELSE s.current_period_end END AS ends
+      FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id = t.id LEFT JOIN plans p ON p.id = s.plan_id
+      WHERE NOT t.is_demo ORDER BY t.created_at DESC LIMIT 5`);
+    const activity = await query<{ at: Date; actor_name: string; action: string; summary: string; severity: string }>(`
+      SELECT at, actor_name, action, summary, severity FROM platform_audit_events ORDER BY at DESC LIMIT 6`);
+    const [overview] = await query<{ db_size: Count; emails_sent: Count; emails_failed: Count; open_tickets: Count; last_backup: Date | null; sign_ins: Count; failed_sign_ins: Count }>(`
+      SELECT pg_database_size(current_database()) AS db_size,
+             (SELECT count(*) FROM email_deliveries WHERE status = 'SENT' AND created_at > now() - interval '1 day') AS emails_sent,
+             (SELECT count(*) FROM email_deliveries WHERE status = 'FAILED' AND created_at > now() - interval '1 day') AS emails_failed,
+             (SELECT count(*) FROM support_tickets WHERE status IN ('OPEN', 'IN_PROGRESS', 'WAITING_CUSTOMER')) AS open_tickets,
+             (SELECT max(taken_at) FROM platform_backups) AS last_backup,
+             (SELECT count(*) FROM sign_in_attempts WHERE outcome = 'success' AND at > now() - interval '1 day') AS sign_ins,
+             (SELECT count(*) FROM sign_in_attempts WHERE outcome IN ('bad_password', 'two_factor_failed') AND at > now() - interval '1 day') AS failed_sign_ins`);
+
+    // Six calendar months, oldest first, in the main currency (other currencies are listed separately).
+    const currencies = [...new Set(revenue.map((row) => row.currency))];
+    const currency = currencies.includes("NGN") || !currencies.length ? "NGN" : currencies[0];
+    const months = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date();
+      date.setUTCDate(1);
+      date.setUTCHours(0, 0, 0, 0);
+      date.setUTCMonth(date.getUTCMonth() - (5 - index));
+      return date;
+    });
+    const series = months.map((month) => {
+      const row = revenue.find((entry) => entry.currency === currency && new Date(entry.month).getTime() === month.getTime());
+      return { month: month.toISOString().slice(0, 7), label: month.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" }), amount: n(row?.amount ?? 0), payments: n(row?.count ?? 0) };
+    });
+    const thisMonth = series.at(-1)!.amount;
+    const lastMonth = series.at(-2)!.amount;
+    return {
+      revenue: { currency, otherCurrencies: currencies.filter((entry) => entry !== currency), series, total: series.reduce((sum, row) => sum + row.amount, 0), thisMonth, lastMonth, change: lastMonth > 0 ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100) : null },
+      users: { total: n(users?.total), newThisMonth: n(users?.new_month) },
+      pharmaciesNewThisMonth: n(pharmacies?.new_month),
+      recent: recent.map((row) => ({ ...row, ends: row.ends ? new Date(row.ends).toISOString() : null })),
+      activity: activity.map((row) => ({ ...row, at: new Date(row.at).toISOString() })),
+      overview: {
+        databaseBytes: n(overview?.db_size), emailsSent: n(overview?.emails_sent), emailsFailed: n(overview?.emails_failed), openTickets: n(overview?.open_tickets),
+        lastBackup: overview?.last_backup ? new Date(overview.last_backup).toISOString() : null, signIns: n(overview?.sign_ins), failedSignIns: n(overview?.failed_sign_ins),
+      },
+    };
+  });
+}

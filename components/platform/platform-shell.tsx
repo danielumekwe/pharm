@@ -1,52 +1,57 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { BrandWordmark } from "@/components/branding";
-import { PLATFORM_ROLE_LABELS, platformCan, type PlatformActor } from "@/lib/platform/session";
+import packageJson from "@/package.json";
+import { platformQuery } from "@/lib/db/database";
+import { PLATFORM_ROLE_LABELS, platformCan, type PlatformActor, type PlatformPermission } from "@/lib/platform/session";
 
+import { PlatformFrame, type NavGroup, type NavIcon } from "./platform-nav";
 import { PlatformSignOut } from "./platform-sign-out";
 
+type Link = { href: string; label: string; icon: NavIcon; permission: PlatformPermission | "self" };
+const GROUPS: Array<{ label: string; links: Link[] }> = [
+  { label: "Overview", links: [{ href: "/platform", label: "Dashboard", icon: "dashboard", permission: "dashboard.view" }] },
+  { label: "Customers", links: [
+    { href: "/platform/tenants", label: "Pharmacies", icon: "pharmacies", permission: "tenants.view" },
+    { href: "/platform/tickets", label: "Support tickets", icon: "support", permission: "support.tickets" },
+    { href: "/platform/announcements", label: "Announcements", icon: "announcements", permission: "content.manage" },
+    { href: "/platform/help", label: "Help articles", icon: "help", permission: "content.manage" },
+  ] },
+  { label: "Billing", links: [
+    { href: "/platform/plans", label: "Plans", icon: "plans", permission: "plans.manage" },
+    { href: "/platform/settings/payments", label: "Payment gateway", icon: "payments", permission: "billing.manage" },
+    { href: "/platform/settings/billing", label: "Billing policy", icon: "billing", permission: "billing.manage" },
+  ] },
+  { label: "Platform", links: [
+    { href: "/platform/settings/email", label: "Email", icon: "email", permission: "settings.manage" },
+    { href: "/platform/settings/system", label: "System", icon: "system", permission: "settings.manage" },
+    { href: "/platform/settings/general", label: "Branding", icon: "branding", permission: "settings.manage" },
+    { href: "/platform/integrations", label: "Integrations", icon: "integrations", permission: "settings.manage" },
+  ] },
+  { label: "Security", links: [
+    { href: "/platform/audit", label: "Audit log", icon: "audit", permission: "audit.view" },
+    { href: "/platform/security/log", label: "Security log", icon: "securityLog", permission: "audit.view" },
+    { href: "/platform/settings/security", label: "Security policy", icon: "securityPolicy", permission: "staff.manage" },
+    { href: "/platform/staff", label: "Platform staff", icon: "staff", permission: "staff.manage" },
+    { href: "/platform/security", label: "My security", icon: "mySecurity", permission: "self" },
+  ] },
+];
+
 /** Layout for Web365 platform administration: separate from the pharmacy app. */
-export function PlatformShell({ actor, children }: { actor: PlatformActor; children: ReactNode }) {
-  const links = [
-    { href: "/platform", label: "Dashboard", show: platformCan(actor, "dashboard.view") },
-    { href: "/platform/tenants", label: "Pharmacies", show: platformCan(actor, "tenants.view") },
-    { href: "/platform/tickets", label: "Support", show: platformCan(actor, "support.tickets") },
-    { href: "/platform/announcements", label: "Announcements", show: platformCan(actor, "content.manage") },
-    { href: "/platform/help", label: "Help articles", show: platformCan(actor, "content.manage") },
-    { href: "/platform/plans", label: "Plans", show: platformCan(actor, "plans.manage") },
-    { href: "/platform/settings/payments", label: "Payment gateway", show: platformCan(actor, "billing.manage") },
-    { href: "/platform/settings/billing", label: "Billing policy", show: platformCan(actor, "billing.manage") },
-    { href: "/platform/settings/email", label: "Email", show: platformCan(actor, "settings.manage") },
-    { href: "/platform/settings/system", label: "System", show: platformCan(actor, "settings.manage") },
-    { href: "/platform/settings/general", label: "Branding", show: platformCan(actor, "settings.manage") },
-    { href: "/platform/integrations", label: "Integrations", show: platformCan(actor, "settings.manage") },
-    { href: "/platform/audit", label: "Audit log", show: platformCan(actor, "audit.view") },
-    { href: "/platform/security/log", label: "Security log", show: platformCan(actor, "audit.view") },
-    { href: "/platform/settings/security", label: "Security policy", show: platformCan(actor, "staff.manage") },
-    { href: "/platform/staff", label: "Platform staff", show: platformCan(actor, "staff.manage") },
-    { href: "/platform/security", label: "My security", show: true },
-  ].map((link) => (actor.pending ? { ...link, show: link.href === "/platform/security" } : link));
+export async function PlatformShell({ actor, children }: { actor: PlatformActor; children: ReactNode }) {
+  // Tickets where the pharmacy wrote last and Web365 has not answered (the bell badge).
+  const waiting = platformCan(actor, "support.tickets") && !actor.pending
+    ? Number((await platformQuery<Array<{ n: string }>>((query) => query(`SELECT count(*) AS n FROM support_tickets WHERE status IN ('OPEN', 'IN_PROGRESS') AND last_reply_by = 'pharmacy'`)).catch(() => [{ n: "0" }]))[0]?.n ?? 0)
+    : 0;
+  const groups: NavGroup[] = GROUPS.map((group) => ({
+    label: group.label,
+    links: group.links
+      .filter((link) => (actor.pending ? link.href === "/platform/security" : link.permission === "self" || platformCan(actor, link.permission)))
+      .map((link) => ({ href: link.href, label: link.label, icon: link.icon, badge: link.href === "/platform/tickets" ? waiting : undefined })),
+  })).filter((group) => group.links.length);
+  const initials = actor.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900" data-platform-shell>
-      <header className="border-b border-slate-800 bg-slate-900 text-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <span className="rounded-lg bg-white px-2 py-1"><BrandWordmark className="h-7 w-auto" /></span>
-            <span className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">Web365 platform</span>
-          </div>
-          <nav className="flex flex-1 flex-wrap gap-1 text-sm">
-            {links.filter((link) => link.show).map((link) => (
-              <Link key={link.href} href={link.href} className="rounded-md px-3 py-1.5 text-slate-200 hover:bg-white/10 hover:text-white">{link.label}</Link>
-            ))}
-          </nav>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-slate-300">{actor.name} · {PLATFORM_ROLE_LABELS[actor.role]}</span>
-            <PlatformSignOut />
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
-    </div>
+    <PlatformFrame groups={groups} user={{ name: actor.name, role: PLATFORM_ROLE_LABELS[actor.role], initials }} twoFactor={Boolean(actor.twoFactor)} version={packageJson.version} waiting={waiting} signOut={<PlatformSignOut />}>
+      {children}
+    </PlatformFrame>
   );
 }
