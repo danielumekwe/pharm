@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { inputClass, Notice } from "@/components/auth-card";
 
-type Member = { id: string; name: string; email: string; role: string; roleLabel: string; status: string; last_login_at: string | null };
+type Member = { id: string; name: string; email: string; role: string; roleLabel: string; status: string; last_login_at: string | null; two_factor: boolean; password_must_change: boolean };
 
 export function StaffManager({ staff, selfId }: { staff: Member[]; selfId: string }) {
   const router = useRouter();
@@ -26,6 +26,14 @@ export function StaffManager({ staff, selfId }: { staff: Member[]; selfId: strin
     if (!response.ok) return setMessage({ tone: "error", text: body.error ?? "Could not update." });
     router.refresh();
   }
+  async function resetTwoFactor(member: Member) {
+    const reason = window.prompt(`Reset two-factor sign-in for ${member.name}? They will be signed out and must set it up again. Reason:`);
+    if (!reason) return;
+    const response = await fetch(`/api/platform/users/${member.id}/two-factor`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    setMessage(response.ok ? { tone: "success", text: `Two-factor sign-in reset for ${member.name}.` } : { tone: "error", text: body.error ?? "Could not reset." });
+    router.refresh();
+  }
   return (
     <div className="mt-4 space-y-4">
       <form onSubmit={create} className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-4">
@@ -38,8 +46,14 @@ export function StaffManager({ staff, selfId }: { staff: Member[]; selfId: strin
       <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
         {staff.map((member) => (
           <li key={member.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-            <span><strong>{member.name}</strong> · {member.email} · {member.roleLabel} · <span className="text-xs uppercase">{member.status}</span>{member.last_login_at ? ` · last sign-in ${member.last_login_at.slice(0, 10)}` : ""}</span>
+            <span><strong>{member.name}</strong> · {member.email} · {member.roleLabel} · <span className="text-xs uppercase">{member.status}</span>{member.last_login_at ? ` · last sign-in ${member.last_login_at.slice(0, 10)}` : ""}
+              <span className={`ml-2 rounded px-1.5 text-[11px] ${member.two_factor ? "bg-green-100 text-green-800" : "bg-slate-100 text-slate-600"}`} data-staff-two-factor={member.two_factor ? "on" : "off"}>{member.two_factor ? "two-factor on" : "no two-factor"}</span>
+              {member.password_must_change ? <span className="ml-1 rounded bg-amber-100 px-1.5 text-[11px] text-amber-800">temporary password</span> : null}
+            </span>
+            <span className="flex gap-2">
+            {member.id !== selfId && member.two_factor ? <button type="button" onClick={() => void resetTwoFactor(member)} className="rounded-lg border border-slate-300 px-3 py-1 text-xs">Reset two-factor</button> : null}
             {member.id !== selfId ? <button type="button" onClick={() => void setStatus(member.id, member.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE")} className="rounded-lg border border-slate-300 px-3 py-1 text-xs">{member.status === "ACTIVE" ? "Suspend" : "Reactivate"}</button> : null}
+            </span>
           </li>
         ))}
       </ul>

@@ -8,6 +8,7 @@ import { currentTenant, withDatabaseTransaction } from "@/lib/db/database";
 import { getOutletById, users } from "@/lib/data";
 import { allowedOutletIds, canSwitchTo, HEAD_OFFICE, resolveActiveOutlet } from "@/lib/erp/access";
 import { activeImpersonation } from "@/lib/erp/impersonation";
+import { recordSignInAttempt } from "@/lib/platform/security";
 import { activeSupportGrant, supportActor } from "@/lib/platform/support";
 import { recordAudit } from "@/lib/erp/services";
 import { effectivePermissions, isOutletScoped } from "@/lib/rbac";
@@ -40,11 +41,17 @@ export async function authorizeCredentials(credentials: unknown): Promise<Signed
   const parsed = credentialsSchema.safeParse(credentials);
   if (!parsed.success) return null;
   const { identifier, password, tenantId, outletId } = parsed.data;
-  await limitSignIn(identifier);
+  try {
+    await limitSignIn(identifier);
+  } catch (error) {
+    await recordSignInAttempt({ surface: "pharmacy", identifier, outcome: "rate_limited", tenantId });
+    throw error;
+  }
 
   const accountIds = await verifiedAccountIds(identifier, password);
   if (!accountIds.length) {
     recordSignInFailure(identifier);
+    await recordSignInAttempt({ surface: "pharmacy", identifier, outcome: "bad_password", tenantId });
     await recordFailedSignIn(identifier, tenantId);
     return null;
   }
@@ -60,6 +67,7 @@ export async function authorizeCredentials(credentials: unknown): Promise<Signed
   }
 
   const user = await runInTenant(choice.tenantId, () => withDatabaseTransaction(() => signInWithinTenant(choice.userId, identifier, outletId)));
+  if (user) await recordSignInAttempt({ surface: "pharmacy", identifier, outcome: "success", userId: user.id, tenantId: choice.tenantId });
   return user ? { ...user, tenantId: choice.tenantId } : null;
 }
 

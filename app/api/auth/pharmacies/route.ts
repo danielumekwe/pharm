@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { recordSignInAttempt } from "@/lib/platform/security";
 import { pharmaciesFor, suspendedMessage, suspendedPharmaciesFor, verifiedAccountIds } from "@/lib/saas/identity";
 import { limitSignIn, RateLimitError, recordSignInFailure } from "@/lib/saas/rate-limit";
 
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
     const ids = await verifiedAccountIds(identifier, password);
     if (!ids.length) {
       recordSignInFailure(identifier);
+      await recordSignInAttempt({ surface: "pharmacy", identifier, outcome: "bad_password" });
       return NextResponse.json({ error: "Email/staff ID or password is incorrect." }, { status: 401 });
     }
     const choices = await pharmaciesFor(ids);

@@ -9,6 +9,7 @@
 // Every platform change is validated on the server, recorded with secrets masked in
 // platform_settings_history, and written to the platform audit trail.
 import { randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import { z } from "zod";
 
 import { platformQuery } from "@/lib/db/database";
@@ -85,7 +86,35 @@ export const SETTINGS = {
     defaults: { graceDays: 3, refundApproval: "two_person", closedRetentionDays: 90 },
     secrets: {},
   },
+  "security.policy": {
+    label: "Platform security policy",
+    permission: "staff.manage",
+    value: z.object({
+      /** Every platform staff member must use an authenticator app (they are asked to set it up at sign-in). */
+      requireTwoFactor: z.boolean(),
+      sessionHours: z.number().int().min(1).max(24),
+      /** Signed out after this long without activity. */
+      idleMinutes: z.number().int().min(5).max(480),
+      /** Failed platform sign-ins (password or code) before the account is locked for lockoutMinutes. */
+      maxFailedAttempts: z.number().int().min(3).max(20),
+      lockoutMinutes: z.number().int().min(5).max(1440),
+      /** Addresses (or CIDR ranges) allowed to use the Control Centre; empty: any address. */
+      ipAllowlist: z.array(z.string().trim().refine(isCidr, "Enter an IP address or range such as 102.89.0.0/16")).max(50),
+    }),
+    defaults: { requireTwoFactor: false, sessionHours: 8, idleMinutes: 60, maxFailedAttempts: 5, lockoutMinutes: 15, ipAllowlist: [] as string[] },
+    secrets: {},
+  },
 } satisfies Record<string, Definition<z.ZodTypeAny>>;
+
+function isCidr(value: string) {
+  const [address, bits, extra] = value.split("/");
+  if (extra !== undefined) return false;
+  const family = isIP(address);
+  if (!family) return false;
+  if (bits === undefined) return true;
+  if (!/^\d{1,3}$/.test(bits)) return false;
+  return Number(bits) <= (family === 4 ? 32 : 128);
+}
 
 export type SettingKey = keyof typeof SETTINGS;
 export type SettingValue<K extends SettingKey> = z.infer<(typeof SETTINGS)[K]["value"]>;

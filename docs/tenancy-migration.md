@@ -230,3 +230,28 @@ Going live also needs:
 - [ ] In the Paystack dashboard, make sure the webhook URL also receives refund events (`refund.processed`, `refund.failed`, …). They use the same URL as payments.
 - [ ] Check the billing policy (grace days, refund approval, data retention) before the first renewal.
 - [ ] At least two people with the Billing Administrator or Platform Super Admin role, if refunds need two-person approval.
+
+## Phase 7D (platform security)
+
+Migration `20261115090000_platform_security` (rollback: `prisma/rollbacks/20261115090000_platform_security/down.sql`, run before the 7C rollback; it drops two-factor enrolments, sessions and the sign-in log):
+
+- `platform_users`: new columns for two-factor sign-in (secret as AES-256-GCM ciphertext, recovery codes as keyed hashes, the last used code step) and `password_must_change`.
+- `platform_sessions`: server-side platform sessions. They are revoked, never deleted.
+- `sign_in_attempts`: every platform and pharmacy sign-in attempt (no passwords or codes). It is append-only for the app.
+
+Re-run `prisma/sql/app-role.sql` afterwards. Rehearsed on 8 November 2026 on the live-data copy: counts and totals matched, there was no drift, the rollback was lossless (0 tables differ) and re-applying worked.
+
+**Deploying this signs every platform staff member out once.** Old cookies have no session row.
+
+How it works:
+
+- **Sessions.** The cookie holds a session id that is checked on every request. A session ends on sign-out, after `sessionHours` (default 8), after `idleMinutes` without activity (default 60), on a password change, on suspension, or when a Super Admin ends it.
+- **Lockout.** After `maxFailedAttempts` wrong passwords or codes (default 5), an account is locked for `lockoutMinutes` (default 15). The count comes from the database, so it holds across server instances. Pharmacy sign-ins keep their limit of 10 failures per 15 minutes, now also counted in the database.
+- **Two-factor sign-in.** Uses an authenticator app (TOTP), with 10 single-use recovery codes. It needs `SETTINGS_ENCRYPTION_KEY`. A Super Admin can reset someone's setup (for a lost phone); this ends all their sessions and is logged as critical.
+- **Temporary passwords.** Staff created in the Control Centre must choose their own password at the first sign-in.
+- **IP allowlist** (optional). It limits the Control Centre to listed addresses or ranges and does not affect pharmacies. It relies on the address the hosting proxy reports in `X-Forwarded-For` (set by Vercel and Cloudflare). If an allowlist ever locks everyone out, clear it in the database: `UPDATE platform_settings SET value = jsonb_set(value, '{ipAllowlist}', '[]') WHERE key = 'security.policy';`
+
+Going live also needs:
+
+- [ ] Each platform staff member: turn on two-factor sign-in on **My security**. Then a Super Admin can tick **Require two-factor sign-in** on **Security policy**.
+- [ ] Check that everyone still has a working sign-in after deploying, since everyone is signed out once.

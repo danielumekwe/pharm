@@ -15,8 +15,8 @@ export const staffSchema = z.object({
 });
 
 export async function listStaff() {
-  const rows = await platformQuery<Array<{ id: string; name: string; email: string; role: string; status: string; last_login_at: Date | null; created_at: Date }>>((query) =>
-    query(`SELECT id, name, email, role, status, last_login_at, created_at FROM platform_users ORDER BY created_at`),
+  const rows = await platformQuery<Array<{ id: string; name: string; email: string; role: string; status: string; last_login_at: Date | null; created_at: Date; two_factor: boolean; password_must_change: boolean }>>((query) =>
+    query(`SELECT id, name, email, role, status, last_login_at, created_at, (totp_enabled_at IS NOT NULL) AS two_factor, password_must_change FROM platform_users ORDER BY created_at`),
   );
   return rows.map((row) => ({ ...row, last_login_at: row.last_login_at ? new Date(row.last_login_at).toISOString() : null, created_at: new Date(row.created_at).toISOString() }));
 }
@@ -27,7 +27,7 @@ export async function createStaff(actor: PlatformActor, input: z.infer<typeof st
   if (existing) throw new DomainError("A platform account with this email already exists.", 409);
   const temporaryPassword = `${randomBytes(9).toString("base64url")}7a`;
   const id = `puser-${randomUUID()}`;
-  await platformQuery((query) => query(`INSERT INTO platform_users (id, email, name, role, password_hash) VALUES ($1, $2, $3, $4, $5)`, [id, input.email, input.name, input.role, hashPassword(temporaryPassword)]));
+  await platformQuery((query) => query(`INSERT INTO platform_users (id, email, name, role, password_hash, password_must_change) VALUES ($1, $2, $3, $4, $5, true)`, [id, input.email, input.name, input.role, hashPassword(temporaryPassword)]));
   await recordPlatformAudit(platformActorRef(actor), { action: "platform.staff-create", targetType: "PlatformUser", targetId: id, summary: `Created platform account ${input.name} <${input.email}> as ${input.role}`, severity: "warning" });
   return { id, temporaryPassword };
 }
@@ -41,6 +41,7 @@ export async function setStaffStatus(actor: PlatformActor, id: string, status: "
     if (Number(n) === 0) throw new DomainError("Keep at least one active Platform Super Admin.");
   }
   await platformQuery((query) => query(`UPDATE platform_users SET status = $1, updated_at = now() WHERE id = $2`, [status, id]));
+  if (status === "SUSPENDED") await platformQuery((query) => query(`UPDATE platform_sessions SET revoked_at = now(), revoked_by_name = $1, revoke_reason = 'Account suspended' WHERE user_id = $2 AND revoked_at IS NULL`, [actor.name, id]));
   await recordPlatformAudit(platformActorRef(actor), { action: status === "SUSPENDED" ? "platform.staff-suspend" : "platform.staff-reactivate", targetType: "PlatformUser", targetId: id, summary: `${status === "SUSPENDED" ? "Suspended" : "Reactivated"} platform account ${row.name}`, severity: "warning" });
   return { ok: true };
 }

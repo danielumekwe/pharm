@@ -3,6 +3,8 @@ export class Client {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
     this.cookies = new Map();
+    /** Extra headers sent with every request (e.g. X-Forwarded-For to act from an address). */
+    this.headers = {};
   }
 
   cookieHeader() {
@@ -24,7 +26,7 @@ export class Client {
     const response = await fetch(`${this.baseUrl}${path}`, {
       method,
       redirect: "manual",
-      headers: { cookie: this.cookieHeader(), ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      headers: { ...this.headers, cookie: this.cookieHeader(), ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     this.store(response);

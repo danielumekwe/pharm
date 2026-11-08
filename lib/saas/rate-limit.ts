@@ -1,6 +1,6 @@
 // Fixed-window rate limiting for sign-in endpoints, kept in process memory.
 // Each server instance counts on its own, so on serverless hosting the effective limit is per instance;
-// a shared store (database or KV) is planned with the Phase 8 hardening.
+// sign-in failures are also counted in the database (sign_in_attempts), which every instance shares.
 import { headers } from "next/headers";
 
 type Window = { count: number; resetAt: number };
@@ -57,6 +57,9 @@ const failureKey = (identifier: string) => `signin:fail:${identifier.trim().toLo
 export async function limitSignIn(identifier: string) {
   hit(`signin:ip:${await clientAddress()}`, 60, WINDOW);
   check(failureKey(identifier), FAILURES);
+  // The same limit from the shared sign-in log, so it holds across server instances.
+  const { pharmacyLockedOut } = await import("@/lib/platform/security");
+  if (await pharmacyLockedOut(identifier)) throw new RateLimitError(WINDOW / 1000);
 }
 
 export function recordSignInFailure(identifier: string) {

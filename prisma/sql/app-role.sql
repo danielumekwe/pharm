@@ -62,3 +62,12 @@ BEGIN
         REVOKE UPDATE, DELETE, TRUNCATE ON "subscription_adjustments" FROM pharm_app;
     END IF;
 END $$;
+
+-- The sign-in log is append-only for the application; platform sessions are revoked, never deleted.
+DO $$
+BEGIN
+    IF to_regclass('sign_in_attempts') IS NOT NULL THEN
+        REVOKE UPDATE, DELETE, TRUNCATE ON "sign_in_attempts" FROM pharm_app;
+        REVOKE DELETE, TRUNCATE ON "platform_sessions" FROM pharm_app;
+    END IF;
+END $$;

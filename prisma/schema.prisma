@@ -985,14 +985,21 @@ model PlatformUser {
   id                       String         @id
   email                    String         @unique(map: "platform_users_email_key")
   name                     String
-  role                     String         // PLATFORM_SUPER_ADMIN | PLATFORM_SUPPORT
+  role                     String         // PLATFORM_SUPER_ADMIN | PLATFORM_SUPPORT | BILLING_ADMIN | TECHNICAL_ADMIN
   status                   String         @default("ACTIVE")
   passwordHash             String         @map("password_hash")
   passwordChangedAt        DateTime?      @map("password_changed_at") @db.Timestamptz(6)
   lastLoginAt              DateTime?      @map("last_login_at") @db.Timestamptz(6)
   createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  /// TOTP secret as AES-256-GCM ciphertext; recovery codes only as keyed hashes.
+  totpSecretCiphertext     String?        @map("totp_secret_ciphertext")
+  totpEnabledAt            DateTime?      @map("totp_enabled_at") @db.Timestamptz(6)
+  totpLastStep             BigInt?        @map("totp_last_step")
+  recoveryCodes            Json?          @map("recovery_codes")
+  passwordMustChange       Boolean        @default(false) @map("password_must_change")
   supportRequests          SupportAccessGrant[]
+  sessions                 PlatformSession[]
 
   @@map("platform_users")
 }
@@ -1232,6 +1239,44 @@ model BillingRefund {
   @@index([paymentId], map: "billing_refunds_payment_idx")
   @@index([status, requestedAt(sort: Desc)], map: "billing_refunds_status_idx")
   @@map("billing_refunds")
+}
+
+/// A platform staff sign-in session (the cookie holds its id); revoked, never deleted.
+model PlatformSession {
+  id                       String         @id
+  userId                   String         @map("user_id")
+  user                     PlatformUser   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt               DateTime       @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt                DateTime       @map("expires_at") @db.Timestamptz(6)
+  ip                       String?
+  userAgent                String?        @map("user_agent")
+  twoFactor                Boolean        @default(false) @map("two_factor")
+  revokedAt                DateTime?      @map("revoked_at") @db.Timestamptz(6)
+  revokedByName            String?        @map("revoked_by_name")
+  revokeReason             String?        @map("revoke_reason")
+
+  @@index([userId, createdAt(sort: Desc)], map: "platform_sessions_user_idx")
+  @@index([revokedAt, expiresAt], map: "platform_sessions_active_idx")
+  @@map("platform_sessions")
+}
+
+/// Every sign-in attempt, platform and pharmacy (append-only): monitoring and lockout across servers.
+model SignInAttempt {
+  id                       String         @id
+  at                       DateTime       @default(now()) @db.Timestamptz(6)
+  surface                  String         // platform | pharmacy
+  identifier               String
+  userId                   String?        @map("user_id")
+  tenantId                 String?        @map("tenant_id")
+  ip                       String?
+  userAgent                String?        @map("user_agent")
+  outcome                  String
+  detail                   String?
+
+  @@index([surface, identifier, at(sort: Desc)], map: "sign_in_attempts_identifier_idx")
+  @@index([at(sort: Desc)], map: "sign_in_attempts_at_idx")
+  @@map("sign_in_attempts")
 }
 
 /// One background job run across all pharmacies.

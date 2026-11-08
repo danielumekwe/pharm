@@ -16,8 +16,11 @@ export function PlatformShell({ actor, children }: { actor: PlatformActor; child
     { href: "/platform/settings/billing", label: "Billing policy", show: platformCan(actor, "billing.manage") },
     { href: "/platform/settings/email", label: "Email", show: platformCan(actor, "settings.manage") },
     { href: "/platform/audit", label: "Audit log", show: platformCan(actor, "audit.view") },
+    { href: "/platform/security/log", label: "Security log", show: platformCan(actor, "audit.view") },
+    { href: "/platform/settings/security", label: "Security policy", show: platformCan(actor, "staff.manage") },
     { href: "/platform/staff", label: "Platform staff", show: platformCan(actor, "staff.manage") },
-  ];
+    { href: "/platform/security", label: "My security", show: true },
+  ].map((link) => (actor.pending ? { ...link, show: link.href === "/platform/security" } : link));
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900" data-platform-shell>
       <header className="border-b border-slate-800 bg-slate-900 text-white">

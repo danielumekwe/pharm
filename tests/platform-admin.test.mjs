@@ -272,6 +272,8 @@ describe("Managing pharmacies", () => {
     const created = await ops.post("/api/platform/users", { name: "Kemi Ade", email: "Kemi@Web365.ng", role: "PLATFORM_SUPPORT" });
     assert.equal(created.status, 201);
     const kemi = await platformSession({ email: "kemi@web365.ng", password: created.data.temporaryPassword });
+    assert.equal((await kemi.get("/api/platform/tenants")).status, 403, "the temporary password must be changed first");
+    assert.equal((await kemi.post("/api/platform/me/password", { current: created.data.temporaryPassword, next: "Harbour-Lantern-2026" })).status, 200);
     assert.equal((await kemi.get("/api/platform/tenants")).status, 200);
     assert.equal((await ops.patch(`/api/platform/users/${created.data.id}`, { status: "SUSPENDED" })).status, 200);
     assert.equal((await kemi.get("/api/platform/tenants")).status, 401, "a suspended platform account loses access at once");
