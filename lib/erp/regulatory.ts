@@ -4,6 +4,7 @@ import { outlets, products } from "@/lib/data";
 import { documentStore } from "@/lib/erp/document-storage";
 import { assertCan, DomainError, outletName, recordAudit } from "@/lib/erp/services";
 import { getStore } from "@/lib/erp/store";
+import { documentUploadRules } from "@/lib/platform/system";
 import { DOCUMENT_CATEGORIES, REGISTRATION_STATUSES, type Actor, type ProductRegistration, type RegistrationStatus, type RegulatoryDocument } from "@/lib/erp/types";
 import { newId } from "@/lib/erp/ids";
 import { assertPlanFeature } from "@/lib/saas/subscriptions";
@@ -11,7 +12,6 @@ import { assertPlanFeature } from "@/lib/saas/subscriptions";
 const DAY = 1000 * 60 * 60 * 24;
 /** NAFDAC renewals should be filed about six months before expiry. */
 export const RENEWAL_WINDOW_DAYS = 180;
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES: Record<string, string> = { "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg" };
 
 export type ComplianceState = "Valid" | "Renewal due" | "Expired" | "Pending";
@@ -134,10 +134,12 @@ export async function saveDocument(
   const title = meta.title.trim();
   if (title.length < 3) throw new DomainError("Give the document a title.");
   if (!(DOCUMENT_CATEGORIES as readonly string[]).includes(meta.category)) throw new DomainError("Choose a document category.");
-  const extension = ALLOWED_TYPES[file.type];
-  if (!extension) throw new DomainError("Only PDF, PNG or JPEG files can be uploaded.");
+  // Size and type limits are set in Control Centre → System.
+  const rules = await documentUploadRules();
+  const extension = rules.mimeTypes.includes(file.type) ? ALLOWED_TYPES[file.type] : undefined;
+  if (!extension) throw new DomainError(`Only ${rules.labels.join(", ")} files can be uploaded.`);
   if (file.size === 0) throw new DomainError("The file is empty.");
-  if (file.size > MAX_UPLOAD_BYTES) throw new DomainError("Files must be 5 MB or smaller.");
+  if (file.size > rules.maxBytes) throw new DomainError(`Files must be ${rules.maxLabel} or smaller.`);
   const bytes = new Uint8Array(await file.arrayBuffer());
   // Check the file signature, not just the declared type.
   const signature = [...bytes.subarray(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join("");

@@ -1,3 +1,4 @@
+import { maintenanceMessage } from "@/lib/platform/system";
 import {
   ArrowLeftRight,
   Barcode,
@@ -40,8 +41,11 @@ const shelfBackdrop = {
 export default async function HomePage() {
   // Public page: it shows no pharmacy or outlet names. Locations are listed only after the password is checked.
   await connection();
+  const paused = await maintenanceMessage();
 
   return (
+    <>
+    {paused ? <div role="alert" className="bg-amber-100 px-4 py-2 text-center text-sm font-medium text-amber-900" data-maintenance-banner>{paused}</div> : null}
     <main className="flex min-h-screen flex-col bg-[#f2f6f3] text-slate-900 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,640px)]">
       <section className="relative order-2 overflow-hidden px-5 pb-12 pt-8 text-white sm:px-10 lg:order-none lg:px-14 lg:py-12" style={shelfBackdrop}>
         <div className="pointer-events-none absolute inset-0 backdrop-blur-[2px]" />
@@ -97,5 +101,6 @@ export default async function HomePage() {
         <LoginForm />
       </section>
     </main>
+    </>
   );
 }

@@ -43,9 +43,10 @@ export async function sendJoinPharmacyEmail(account: Account, tenantId: string, 
 }
 
 /** After self-registration: "trial started" to the owner, and a notice to Web365's notification address (if set). */
-export async function sendRegistrationEmails(input: { tenantId: string; owner: Account; pharmacy: string; plan: string; trialEnd: Date; state: string; country: string }) {
-  const day = input.trialEnd.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-  await send(input.owner.email, "trial_started", { name: input.owner.name, pharmacy: input.pharmacy, plan: input.plan, trial_end: day, link: `${appUrl()}/subscription` }, { category: "account", tenantId: input.tenantId });
+export async function sendRegistrationEmails(input: { tenantId: string; owner: Account; pharmacy: string; plan: string; trialEnd: Date | null; state: string; country: string }) {
+  // No trial (switched off in Control Centre → System): no "trial started" email.
+  const day = input.trialEnd?.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  if (day) await send(input.owner.email, "trial_started", { name: input.owner.name, pharmacy: input.pharmacy, plan: input.plan, trial_end: day, link: `${appUrl()}/subscription` }, { category: "account", tenantId: input.tenantId });
   const settings = await readPlatformSetting("email.delivery").catch(() => null);
   const notify = settings?.value.notifyEmail;
   if (notify) await send(notify, "pharmacy_registered", { pharmacy: input.pharmacy, owner_name: input.owner.name, owner_email: input.owner.email, plan: input.plan, state: input.state, country: input.country }, { category: "platform", tenantId: input.tenantId });

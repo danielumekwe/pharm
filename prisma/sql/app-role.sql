@@ -71,3 +71,11 @@ BEGIN
         REVOKE DELETE, TRUNCATE ON "platform_sessions" FROM pharm_app;
     END IF;
 END $$;
+
+-- The backup history is append-only for the application.
+DO $$
+BEGIN
+    IF to_regclass('platform_backups') IS NOT NULL THEN
+        REVOKE UPDATE, DELETE, TRUNCATE ON "platform_backups" FROM pharm_app;
+    END IF;
+END $$;

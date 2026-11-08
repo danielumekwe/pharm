@@ -63,6 +63,14 @@ try {
   writeFileSync(path.join(outDir, "backup.json"), JSON.stringify({ meta: manifest, tables }));
   writeFileSync(path.join(outDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`Backup written to ${outDir}`);
+  // Noted in the backup history the Control Centre shows (after the snapshot, so not part of it). --no-record skips it.
+  if (!args["no-record"] && tableRows.some((row) => row.table_name === "platform_backups")) {
+    const size = Buffer.byteLength(JSON.stringify({ meta: manifest, tables }));
+    await client.query(
+      `INSERT INTO platform_backups (id, kind, label, tables, rows, size_bytes, location, recorded_by) VALUES ($1, 'script', $2, $3, $4, $5, $6, $7)`,
+      [`bkp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, label, Object.keys(counts).length, Object.values(counts).reduce((sum, count) => sum + count, 0), size, path.relative(process.cwd(), outDir), `db-backup (${process.env.USER ?? "unknown user"})`],
+    ).then(() => console.log("Recorded in the Control Centre backup history.")).catch((error) => console.warn(`Not recorded in the backup history: ${error.message}`));
+  }
   console.log(`${Object.keys(counts).length} tables, ${Object.values(counts).reduce((sum, count) => sum + count, 0)} rows.`);
 } finally {
   await client.end();

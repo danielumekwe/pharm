@@ -106,6 +106,8 @@ export async function assertPlanLimit(resource: "outlets" | "staff", used: numbe
 }
 
 export async function assertPlanFeature(feature: string) {
+  const { assertFeatureSwitchedOn } = await import("@/lib/platform/system");
+  await assertFeatureSwitchedOn(feature);
   const subscription = await currentSubscription();
   const problem = subscriptionProblem(subscription);
   if (problem) throw new DomainError(problem, 402);

@@ -15,6 +15,7 @@ export function PlatformShell({ actor, children }: { actor: PlatformActor; child
     { href: "/platform/settings/payments", label: "Payment gateway", show: platformCan(actor, "billing.manage") },
     { href: "/platform/settings/billing", label: "Billing policy", show: platformCan(actor, "billing.manage") },
     { href: "/platform/settings/email", label: "Email", show: platformCan(actor, "settings.manage") },
+    { href: "/platform/settings/system", label: "System", show: platformCan(actor, "settings.manage") },
     { href: "/platform/audit", label: "Audit log", show: platformCan(actor, "audit.view") },
     { href: "/platform/security/log", label: "Security log", show: platformCan(actor, "audit.view") },
     { href: "/platform/settings/security", label: "Security policy", show: platformCan(actor, "staff.manage") },

@@ -63,6 +63,10 @@ export async function platformDashboard() {
     query(`SELECT count(*) FILTER (WHERE status = 'FAILED') AS failed, count(*) FILTER (WHERE status = 'RETRYING') AS retrying, count(*) FILTER (WHERE status = 'SENT') AS sent
            FROM email_deliveries WHERE created_at > now() - interval '1 day'`),
   );
+  const [backup] = await platformQuery<Array<{ taken_at: Date; label: string }>>((query) => query(`SELECT taken_at, label FROM platform_backups ORDER BY taken_at DESC LIMIT 1`));
+  const backupDays = backup ? (Date.now() - new Date(backup.taken_at).getTime()) / 86_400_000 : null;
+  const { systemConfig } = await import("@/lib/platform/system");
+  const system = await systemConfig();
   const lastJob = data.jobs.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())[0];
 
   const health: Health[] = [
@@ -94,6 +98,18 @@ export async function platformDashboard() {
       status: !lastJob ? "unknown" : lastJob.failed > 0 || !lastJob.finished_at ? "warning" : Date.now() - new Date(lastJob.started_at).getTime() > 26 * 3_600_000 ? "warning" : "ok",
       detail: lastJob ? `Last run: ${lastJob.job} (${lastJob.trigger}) at ${new Date(lastJob.started_at).toISOString().replace("T", " ").slice(0, 16)} UTC, ${lastJob.pharmacies} pharmacies, ${lastJob.failed} failed. ${lastJob.detail ?? ""}` : "No run recorded yet.",
       checkedAt: lastJob ? new Date(lastJob.started_at).toISOString() : null,
+    },
+    {
+      name: "Backups",
+      status: backupDays === null ? "warning" : backupDays > 7 ? "warning" : "ok",
+      detail: backup ? `Last recorded backup "${backup.label}" ${new Date(backup.taken_at).toISOString().replace("T", " ").slice(0, 16)} UTC (${Math.floor(backupDays!)} day(s) ago).` : "No backup recorded. Run npm run db:backup, or note a host backup on the System page.",
+      checkedAt: backup ? new Date(backup.taken_at).toISOString() : null,
+    },
+    {
+      name: "Maintenance mode",
+      status: system.maintenance ? "warning" : "ok",
+      detail: system.maintenance ? "ON: pharmacies cannot use the system." : `Off. Registration ${system.registrationOpen ? "open" : "closed"}; trials ${system.trialsEnabled ? "on" : "off"}.`,
+      checkedAt: null,
     },
   ];
 

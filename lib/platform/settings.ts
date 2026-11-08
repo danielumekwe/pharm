@@ -104,6 +104,33 @@ export const SETTINGS = {
     defaults: { requireTwoFactor: false, sessionHours: 8, idleMinutes: 60, maxFailedAttempts: 5, lockoutMinutes: 15, ipAllowlist: [] as string[] },
     secrets: {},
   },
+  "system.config": {
+    label: "System settings",
+    permission: "settings.manage",
+    value: z.object({
+      /** Maintenance: pharmacy sign-in, pages and APIs pause with this message. The Control Centre keeps working. */
+      maintenance: z.boolean(),
+      maintenanceMessage: z.string().trim().max(300),
+      /** New pharmacies can register themselves (Web365 can still create them). */
+      registrationOpen: z.boolean(),
+      /** Off: new pharmacies must pay before using the system. */
+      trialsEnabled: z.boolean(),
+      /** Trial length for new registrations; null: each plan's own trial days. */
+      trialDaysOverride: z.number().int().min(1).max(90).nullable(),
+      /** Platform-wide switches; off overrides every plan. */
+      features: z.object({ stock_transfers: z.boolean(), regulatory_management: z.boolean() }),
+      maxDocumentMB: z.number().int().min(1).max(10),
+      documentTypes: z.array(z.enum(["pdf", "png", "jpeg"])).min(1).max(3),
+      maxLogoKB: z.number().int().min(64).max(2048),
+      jobs: z.object({ alertJobs: z.boolean(), emailQueue: z.boolean() }),
+    }),
+    defaults: {
+      maintenance: false, maintenanceMessage: "", registrationOpen: true, trialsEnabled: true, trialDaysOverride: null as number | null,
+      features: { stock_transfers: true, regulatory_management: true }, maxDocumentMB: 5, documentTypes: ["pdf", "png", "jpeg"] as Array<"pdf" | "png" | "jpeg">,
+      maxLogoKB: 512, jobs: { alertJobs: true, emailQueue: true },
+    },
+    secrets: {},
+  },
 } satisfies Record<string, Definition<z.ZodTypeAny>>;
 
 function isCidr(value: string) {

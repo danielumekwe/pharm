@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { recordSignInAttempt } from "@/lib/platform/security";
+import { maintenanceMessage } from "@/lib/platform/system";
 import { pharmaciesFor, suspendedMessage, suspendedPharmaciesFor, verifiedAccountIds } from "@/lib/saas/identity";
 import { limitSignIn, RateLimitError, recordSignInFailure } from "@/lib/saas/rate-limit";
 
@@ -16,6 +17,8 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Enter your email or staff ID and password." }, { status: 400 });
   const { identifier, password } = parsed.data;
+  const paused = await maintenanceMessage();
+  if (paused) return NextResponse.json({ error: paused, maintenance: true }, { status: 503 });
   try {
     await limitSignIn(identifier);
     const ids = await verifiedAccountIds(identifier, password);

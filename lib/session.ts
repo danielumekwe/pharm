@@ -4,6 +4,7 @@ import { connection, NextResponse } from "next/server";
 import { auth, signedInBefore } from "@/lib/auth";
 import { currentTenant, flushDatabase, markTransactionReadOnly, ReadOnlyError, withDatabaseTransaction } from "@/lib/db/database";
 import { supportActor } from "@/lib/platform/support";
+import { assertNotInMaintenance, maintenanceMessage } from "@/lib/platform/system";
 import { users } from "@/lib/data";
 import { actorFor } from "@/lib/erp/access";
 import { activeImpersonation } from "@/lib/erp/impersonation";
@@ -72,6 +73,7 @@ function asList(permission: Permission | Permission[]) {
 export async function requirePage(permission: Permission | Permission[], path: string): Promise<Actor> {
   const actor = await getActor();
   if (!actor) redirect("/");
+  if (!actor.support && await maintenanceMessage()) redirect("/maintenance");
   if (!actor.support && await subscriptionAccessProblem()) redirect("/subscription");
   if (!canAny(actor, asList(permission))) redirect(`/dashboard?denied=${encodeURIComponent(path)}`);
   return actor;
@@ -102,6 +104,7 @@ class RolledBack extends Error {
 
 function errorResponse(error: unknown) {
   if (error instanceof DomainError) return NextResponse.json({ error: error.message }, { status: error.status });
+  if ((error as Error)?.name === "MaintenanceError") return NextResponse.json({ error: (error as Error).message, maintenance: true }, { status: 503 });
   if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429, headers: { "Retry-After": String(Math.ceil(error.retryAfterSeconds)) } });
   // Matched by name as well: Next.js may bundle the database module into more than one chunk, and instanceof
   // fails across copies of a class.
@@ -139,6 +142,7 @@ export async function guarded(permission: Permission | Permission[], handler: Ha
         return NextResponse.json({ error: `Your role does not have the "${asList(permission).join(" / ")}" permission.` }, { status: 403 });
       }
       try {
+        if (!actor.support) await assertNotInMaintenance();
         if (!actor.support && !options.allowLapsed) await assertSubscriptionAccess();
         const result = await handler(actor);
         await flushDatabase();

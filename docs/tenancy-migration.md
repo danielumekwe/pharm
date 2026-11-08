@@ -255,3 +255,25 @@ Going live also needs:
 
 - [ ] Each platform staff member: turn on two-factor sign-in on **My security**. Then a Super Admin can tick **Require two-factor sign-in** on **Security policy**.
 - [ ] Check that everyone still has a working sign-in after deploying, since everyone is signed out once.
+
+## Phase 7E (system configuration and backups)
+
+Migration `20261116090000_system` (rollback: `prisma/rollbacks/20261116090000_system/down.sql`, run before the 7D rollback; it drops the backup history list, not the backup files):
+
+- `platform_backups`: the backup history. `npm run db:backup` adds a row after its snapshot (`--no-record` skips it). Backups taken at the host (such as a Neon branch) can be noted on **Control Centre → System**. The history is append-only for the app. `tenancy-verify` ignores this table, because the pre-migration backup itself adds a row to it.
+
+Re-run `prisma/sql/app-role.sql` afterwards. Rehearsed on 8 November 2026 on the live-data copy: counts and totals matched, there was no drift, recording a backup worked, the rollback was lossless (0 tables differ) and re-applying worked.
+
+**Control Centre → System** (Technical and Super Admins) holds one settings record, `system.config`, read fresh on every request:
+
+- **Maintenance mode**: pharmacy sign-in, pages (redirected to `/maintenance`), APIs (503) and self-registration pause, with a message. The Control Centre and Web365 support sessions keep working.
+- **Registration and trials**: close self-registration (Web365 can still create pharmacies), switch trials off (new pharmacies start `EXPIRED` and must pay), or set a trial length for new registrations.
+- **Feature switches**: turning stock transfers or regulatory management off refuses them for every pharmacy on the server, whatever the plan.
+- **Uploads**: the largest regulatory document size (1–10 MB; Vercel allows about 4.5 MB per request), the allowed document types, and the largest logo size. File contents are always checked against their type.
+- **Scheduled jobs**: switch the alert jobs or the email retry queue off. Scheduled runs are then skipped and logged as skipped; **Run now** still runs them.
+
+The page also shows the version, commit, runtime, database size, largest tables and latest migration. The dashboard health now includes **Backups** (warns when there is none in the last 7 days) and **Maintenance mode**.
+
+Going live also needs:
+
+- [ ] Before each deployment, take a backup (`npm run db:backup -- --confirm-remote` against Neon, or create a Neon branch and note it on the System page).

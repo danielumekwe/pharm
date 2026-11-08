@@ -114,6 +114,11 @@ export async function registerPharmacy(input: RegistrationInput): Promise<Regist
   if (!plan) throw new DomainError("Choose one of the plans offered.", 400);
 
   const tenantId = `t-${randomBytes(5).toString("hex")}`;
+  // Trial switches from Control Centre → System: off means the pharmacy pays before using the system.
+  const { systemConfig } = await import("@/lib/platform/system");
+  const config = await systemConfig();
+  const trialDays = config.trialsEnabled ? config.trialDaysOverride ?? plan.trialDays : 0;
+  const trialEnd = new Date(Date.now() + trialDays * 86_400_000);
   try {
     await platformQuery(async (query) => {
       const taken = new Set((await query<{ slug: string }>(`SELECT slug FROM tenants WHERE slug LIKE $1`, [`${slugBase(input.businessName)}%`])).map((row) => row.slug));
@@ -126,8 +131,8 @@ export async function registerPharmacy(input: RegistrationInput): Promise<Regist
         [tenantId, slug, input.businessName, input.businessEmail, input.businessPhone, input.address, input.country, input.state, input.currency, input.timeZone, input.requestId],
       );
       await query(
-        `INSERT INTO subscriptions (id, tenant_id, plan_id, status, billing_cycle, trial_ends_at) VALUES ($1, $2, $3, 'TRIAL', $4, $5)`,
-        [`sub-${tenantId}`, tenantId, plan.id, input.billingCycle, new Date(Date.now() + plan.trialDays * 86_400_000)],
+        `INSERT INTO subscriptions (id, tenant_id, plan_id, status, billing_cycle, trial_ends_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [`sub-${tenantId}`, tenantId, plan.id, trialDays > 0 ? "TRIAL" : "EXPIRED", input.billingCycle, trialEnd],
       );
     });
   } catch (error) {
@@ -151,7 +156,7 @@ export async function registerPharmacy(input: RegistrationInput): Promise<Regist
   let verificationEmail: RegistrationResult["verificationEmail"] = "FAILED";
   try {
     verificationEmail = (await sendVerificationEmail(owner, input.businessName)).status;
-    await sendRegistrationEmails({ tenantId, owner, pharmacy: input.businessName, plan: plan.name, trialEnd: new Date(Date.now() + plan.trialDays * 86_400_000), state: input.state, country: COUNTRIES[input.country] });
+    await sendRegistrationEmails({ tenantId, owner, pharmacy: input.businessName, plan: plan.name, trialEnd: trialDays > 0 ? trialEnd : null, state: input.state, country: COUNTRIES[input.country] });
   } catch (error) {
     console.error("[registration] registration emails failed", error instanceof Error ? error.message : "error");
   }

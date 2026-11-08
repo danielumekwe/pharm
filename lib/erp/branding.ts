@@ -8,10 +8,10 @@ import { documentStore } from "@/lib/erp/document-storage";
 import { assertCan, DomainError, recordAudit } from "@/lib/erp/services";
 import { DEFAULT_SETTINGS, getStore } from "@/lib/erp/store";
 import type { Actor, SystemSettings } from "@/lib/erp/types";
+import { logoUploadLimit } from "@/lib/platform/system";
 
 export type Branding = { name: string; logoFile: string | null };
 
-const MAX_LOGO_BYTES = 512 * 1024;
 const LOGO_TYPES: Record<string, { extension: string; matches: (bytes: Uint8Array) => boolean }> = {
   "image/png": { extension: ".png", matches: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
   "image/jpeg": { extension: ".jpg", matches: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
@@ -49,7 +49,8 @@ export async function saveLogo(actor: Actor, file: File) {
   const type = LOGO_TYPES[file.type];
   if (!type) throw new DomainError("The logo must be a PNG, JPEG or WebP image.");
   if (file.size === 0) throw new DomainError("The file is empty.");
-  if (file.size > MAX_LOGO_BYTES) throw new DomainError("The logo must be 512 KB or smaller.");
+  const limit = await logoUploadLimit(); // set in Control Centre → System
+  if (file.size > limit.maxBytes) throw new DomainError(`The logo must be ${limit.maxLabel} or smaller.`);
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (!type.matches(bytes)) throw new DomainError("The file content does not match its type.");
 

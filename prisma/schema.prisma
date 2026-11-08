@@ -1279,6 +1279,23 @@ model SignInAttempt {
   @@map("sign_in_attempts")
 }
 
+/// A database backup (from scripts/db-backup.mjs, or noted from the hosting provider); append-only.
+model PlatformBackup {
+  id                       String         @id
+  takenAt                  DateTime       @default(now()) @map("taken_at") @db.Timestamptz(6)
+  kind                     String         // script | provider
+  label                    String
+  tables                   Int?
+  rows                     BigInt?
+  sizeBytes                BigInt?        @map("size_bytes")
+  location                 String?
+  recordedBy               String         @map("recorded_by")
+  note                     String?
+
+  @@index([takenAt(sort: Desc)], map: "platform_backups_taken_at_idx")
+  @@map("platform_backups")
+}
+
 /// One background job run across all pharmacies.
 model PlatformJobRun {
   id                       String         @id

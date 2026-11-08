@@ -19,7 +19,7 @@ const backup = JSON.parse(readFileSync(args.backup, "utf8"));
 const before = backup.tables ?? backup;
 
 const NEW_TABLES = new Set(["tenants", "tenant_memberships"]);
-const IGNORED = new Set(["_prisma_migrations", "_local_migrations"]);
+const IGNORED = new Set(["_prisma_migrations", "_local_migrations", "platform_backups"]) /* the backup itself adds a row here */;
 const TOTALS = [
   ["sales", "total"], ["sales", "amount_paid"], ["sale_lines", "quantity"], ["payments", "amount"], ["expenses", "amount"],
   ["purchase_orders", "total"], ["batches", "available_quantity"], ["batches", "quantity_received"], ["stock_ledger", "base_quantity"],
