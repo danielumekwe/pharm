@@ -13,7 +13,7 @@ export default async function MaintenancePage() {
     <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center gap-4 px-4 text-center text-slate-900">
       <h1 className="text-2xl font-bold">{message ? "We'll be right back" : "The system is available"}</h1>
       <p className="text-slate-700" data-maintenance-message>{message ?? "Maintenance has finished."}</p>
-      <Link href="/" className="rounded-xl bg-green-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-800">{message ? "Try again" : "Sign in"}</Link>
+      <Link href="/login" className="rounded-xl bg-green-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-800">{message ? "Try again" : "Sign in"}</Link>
     </main>
   );
 }

@@ -23,7 +23,7 @@ export function NativeBridge() {
     let removeBack: (() => void) | undefined;
     void app
       ?.addListener?.("backButton", (data: Record<string, unknown>) => {
-        const home = location.pathname === "/dashboard" || location.pathname === "/";
+        const home = location.pathname === "/dashboard" || location.pathname === "/login" || location.pathname === "/";
         if (data.canGoBack && !home) history.back();
         else void app.exitApp?.();
       })

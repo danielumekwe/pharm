@@ -175,3 +175,23 @@ body {
 .native-only { display: none !important; }
 html[data-native] .native-only { display: inline-flex !important; }
 html[data-native] .web-only { display: none !important; }
+
+/* PharmaERP marketing site (the public landing page at /). Colours taken from the PharmaERP logo. */
+@theme {
+  --color-brand-navy: #0f2a52;
+  --color-brand-blue: #1a5aa6;
+  --color-brand-blue-dark: #144a8a;
+  --color-brand-sky: #f2f7fd;
+  --color-brand-mist: #e3eefa;
+  --color-brand-green: #2b9a45;
+  --color-brand-green-dark: #217a36;
+  --color-brand-ink: #10213d;
+  --color-brand-muted: #51607a;
+}
+
+html:has(body [data-landing]) {
+  scroll-padding-top: 5rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html:has(body [data-landing]) { scroll-behavior: smooth; }
+}

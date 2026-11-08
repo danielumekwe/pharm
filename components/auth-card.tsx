@@ -9,7 +9,7 @@ export function AuthCard({ title, subtitle, children, wide = false }: { title: s
     <main className="flex min-h-screen items-start justify-center bg-[#f2f6f3] px-4 py-10 text-slate-900 sm:items-center">
       <div className={`w-full ${wide ? "max-w-3xl" : "max-w-md"} rounded-[28px] bg-white px-6 py-8 shadow-[0_30px_80px_-30px_rgba(15,81,50,0.35)] sm:px-10`}>
         <div className="flex flex-col items-center text-center">
-          <Link href="/" aria-label="Back to sign in"><BrandWordmark className="h-14 w-auto" /></Link>
+          <Link href="/" aria-label="PharmaERP home"><BrandWordmark className="h-14 w-auto" /></Link>
           <h1 className="mt-4 text-2xl font-bold text-slate-900">{title}</h1>
           {subtitle ? <p className="mt-1.5 text-slate-600">{subtitle}</p> : null}
         </div>

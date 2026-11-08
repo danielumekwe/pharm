@@ -18,7 +18,7 @@ export function AcceptInviteForm({ token, staffId, email, minLength }: { token: 
       <div className="mt-6 space-y-3 text-center text-sm">
         <CheckCircle2 className="mx-auto h-10 w-10 text-green-600" />
         <p>Your account is active. Sign in with <span className="font-semibold">{email}</span> or staff ID <span className="font-mono font-semibold">{staffId}</span>.</p>
-        <Link href="/" className="inline-flex h-11 items-center justify-center rounded-xl bg-green-700 px-6 font-semibold text-white hover:bg-green-800">Go to sign in</Link>
+        <Link href="/login" className="inline-flex h-11 items-center justify-center rounded-xl bg-green-700 px-6 font-semibold text-white hover:bg-green-800">Go to sign in</Link>
       </div>
     );
   }

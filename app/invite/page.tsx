@@ -53,7 +53,7 @@ export default async function InvitePage({ searchParams }: { searchParams: Promi
         ) : (
           <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-sm text-rose-700">
             This invitation link is invalid, already used, or expired. Ask your manager to send a new one.
-            <Link href="/" className="mt-3 block font-medium text-green-700 hover:underline">Go to sign in</Link>
+            <Link href="/login" className="mt-3 block font-medium text-green-700 hover:underline">Go to sign in</Link>
           </div>
         )}
       </div>

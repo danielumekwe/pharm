@@ -69,7 +69,7 @@ describe("Database after the tenancy migrations", () => {
 
 describe("Sign-in", () => {
   test("the public sign-in page names no pharmacy and no outlet", async () => {
-    const html = await (await fetch(`${server.baseUrl}/`)).text();
+    const html = await (await fetch(`${server.baseUrl}/login`)).text();
     for (const marker of ["Outlet 1 - Lekki", "Pharmacy B Main", B_OWNER, "Web365 Demo Pharmacy"]) assert.ok(!html.includes(marker), `sign-in page shows ${marker}`);
   });
 

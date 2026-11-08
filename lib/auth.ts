@@ -171,7 +171,7 @@ export const authOptions: NextAuthOptions = {
     maxAge: 60 * 60 * 12, // one working shift
   },
   pages: {
-    signIn: "/",
+    signIn: "/login",
   },
   providers: [
     CredentialsProvider({

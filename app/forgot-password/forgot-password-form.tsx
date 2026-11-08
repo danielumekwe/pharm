@@ -26,7 +26,7 @@ export function ForgotPasswordForm() {
       {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
       <button type="submit" disabled={busy} className={buttonClass}>{busy ? "Sending…" : "Send reset link"}</button>
       <p className="text-center text-sm text-slate-600">
-        Staff without an email? Your pharmacy&apos;s Super Admin can reset your password. <Link href="/" className="font-medium text-green-700 hover:underline">Back to sign in</Link>
+        Staff without an email? Your pharmacy&apos;s Super Admin can reset your password. <Link href="/login" className="font-medium text-green-700 hover:underline">Back to sign in</Link>
       </p>
     </form>
   );

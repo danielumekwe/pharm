@@ -23,7 +23,7 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
   const { paid } = await searchParams;
   return withDatabaseTransaction(async () => {
     const actor = await getActor();
-    if (!actor?.tenantId) redirect("/");
+    if (!actor?.tenantId) redirect("/login");
     const [subscription, plans, payments, closure] = await Promise.all([subscriptionOverview(), publicPlans(), paymentsFor(actor.tenantId), latestClosure(actor.tenantId)]);
     const canManage = actor.permissions.includes("settings.manage") && !actor.support;
     const canSeeBilling = canManage || actor.permissions.includes("finance.view");
@@ -74,7 +74,7 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
 
         {actor.role === "SUPER_ADMIN" && !actor.support && !subscription?.isDemo ? <CloseAccount pharmacy={pharmacy} request={closure} /> : null}
 
-        {subscription?.problem ? <Link href="/" className="inline-block text-sm text-green-700 hover:underline">Back to sign in</Link> : null}
+        {subscription?.problem ? <Link href="/login" className="inline-block text-sm text-green-700 hover:underline">Back to sign in</Link> : null}
       </main>
     );
   });

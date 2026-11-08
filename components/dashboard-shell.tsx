@@ -487,6 +487,7 @@ function UserMenu() {
           <p className="text-xs text-slate-500">{roleLabel}{user?.staffId ? ` · ${user.staffId}` : ""}</p>
           <p className="mt-1 truncate text-xs text-slate-500">{user?.email}</p>
           <form action="/api/auth/signout" method="post" className="mt-3">
+            <input type="hidden" name="callbackUrl" value="/login" />
             <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
               <LogOut className="h-4 w-4" /> Sign out
             </button>

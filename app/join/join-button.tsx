@@ -23,7 +23,7 @@ export function JoinButton({ token }: { token: string }) {
     return (
       <div className="space-y-4">
         <Notice tone="success">You have joined. Sign in and choose the pharmacy to work in.</Notice>
-        <Link href="/" className={buttonClass}>Go to sign in</Link>
+        <Link href="/login" className={buttonClass}>Go to sign in</Link>
       </div>
     );
   }

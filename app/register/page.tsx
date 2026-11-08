@@ -15,7 +15,7 @@ export default async function RegisterPage() {
   if (!config.registrationOpen || config.maintenance) {
     return (
       <AuthCard title="Register your pharmacy" subtitle={config.maintenance ? config.maintenanceMessage || "Pharmacy ERP is being updated. Please try again shortly." : "New registrations are closed at the moment. Contact Web365 to open an account."}>
-        <p className="text-sm text-slate-600" data-registration-closed>Already registered? <Link href="/" className="font-semibold text-green-800 hover:underline">Sign in</Link>.</p>
+        <p className="text-sm text-slate-600" data-registration-closed>Already registered? <Link href="/login" className="font-semibold text-green-800 hover:underline">Sign in</Link>.</p>
       </AuthCard>
     );
   }

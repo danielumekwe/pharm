@@ -25,7 +25,7 @@ async function uploadLogo(client, bytes, type) {
 
 describe("Branding", () => {
   test("site title defaults to Pharmacy ERP; signed-in pages follow the pharmacy's business name", async () => {
-    const page = async () => (await fetch(`${server.baseUrl}/`)).text();
+    const page = async () => (await fetch(`${server.baseUrl}/login`)).text();
     assert.match(await page(), /<title>Pharmacy ERP<\/title>/);
     assert.doesNotMatch(await page(), /PharmERP/i, "old product name is gone (demo emails @web365.ng are login IDs)");
 
@@ -66,6 +66,7 @@ describe("Branding", () => {
     assert.match(dashboard, new RegExp(`/api/branding/logo\\?v=${logoFile}`), "the app chrome links the logo");
     // The public sign-in page and anonymous requests get the platform logo, not a pharmacy's.
     assert.equal((await fetch(`${server.baseUrl}/api/branding/logo?v=${logoFile}`)).status, 404);
+    assert.doesNotMatch(await (await fetch(`${server.baseUrl}/login`)).text(), new RegExp(logoFile));
     assert.doesNotMatch(await (await fetch(`${server.baseUrl}/`)).text(), new RegExp(logoFile));
 
     const removed = await admin.delete("/api/settings/logo");

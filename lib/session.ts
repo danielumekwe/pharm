@@ -72,7 +72,7 @@ function asList(permission: Permission | Permission[]) {
 /** Server-page guard: signs out anonymous users and bounces users without the permission. */
 export async function requirePage(permission: Permission | Permission[], path: string): Promise<Actor> {
   const actor = await getActor();
-  if (!actor) redirect("/");
+  if (!actor) redirect("/login");
   if (!actor.support && await maintenanceMessage()) redirect("/maintenance");
   if (!actor.support && await subscriptionAccessProblem()) redirect("/subscription");
   if (!canAny(actor, asList(permission))) redirect(`/dashboard?denied=${encodeURIComponent(path)}`);

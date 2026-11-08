@@ -11,7 +11,7 @@ export default withAuth(
   },
   {
     secret: AUTH_SECRET,
-    pages: { signIn: "/" },
+    pages: { signIn: "/login" },
     callbacks: {
       authorized: ({ token }) => Boolean(token?.id),
     },

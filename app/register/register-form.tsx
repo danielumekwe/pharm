@@ -42,7 +42,7 @@ export function RegisterForm({ plans, countries, currencies, states }: Props) {
       if (!response.ok || !body.tenantId) throw new Error(body.error ?? "Registration failed. Please try again.");
       const result = await signIn("credentials", { identifier: form.ownerEmail, password: form.password, tenantId: body.tenantId, outletId: "HQ", redirect: false });
       if (result?.error) {
-        router.push("/?registered=1");
+        router.push("/login?registered=1");
         return;
       }
       router.push("/onboarding?welcome=1");
@@ -125,7 +125,7 @@ export function RegisterForm({ plans, countries, currencies, states }: Props) {
         {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
         {busy ? "Setting up your pharmacy…" : "Create my pharmacy"}
       </button>
-      <p className="text-center text-sm text-slate-600">Already registered? <Link href="/" className="font-medium text-green-700 hover:underline">Sign in</Link></p>
+      <p className="text-center text-sm text-slate-600">Already registered? <Link href="/login" className="font-medium text-green-700 hover:underline">Sign in</Link></p>
     </form>
   );
 }

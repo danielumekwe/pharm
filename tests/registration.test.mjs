@@ -63,7 +63,7 @@ async function ownerSession() {
 
 describe("Public pages", () => {
   test("the sign-in page links to registration and hides the demo shortcuts and their password", async () => {
-    const html = await (await fetch(`${server.baseUrl}/`)).text();
+    const html = await (await fetch(`${server.baseUrl}/login`)).text();
     assert.match(html, /href="\/register"/);
     assert.match(html, /href="\/forgot-password"/);
     assert.ok(!html.includes("Admin@123") && !html.includes("Demo accounts"), "demo shortcuts only appear with NEXT_PUBLIC_DEMO_MODE=1");

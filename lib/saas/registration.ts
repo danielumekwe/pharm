@@ -70,15 +70,17 @@ export type PublicPlan = {
   trialDays: number;
   maxOutlets: number | null;
   maxStaffAccounts: number | null;
+  /** Optional-module allowlist; null means every module is included. */
+  features: string[] | null;
 };
 
 /** Plans offered on the registration page (active and public), cheapest first. */
 export async function publicPlans(): Promise<PublicPlan[]> {
   const rows = await platformQuery<Array<{
     id: string; name: string; description: string; monthly_price: string | null; annual_price: string | null; currency: string; trial_days: number;
-    max_outlets: number | null; max_staff_accounts: number | null;
+    max_outlets: number | null; max_staff_accounts: number | null; features: unknown;
   }>>((query) =>
-    query(`SELECT id, name, description, monthly_price, annual_price, currency, trial_days, max_outlets, max_staff_accounts
+    query(`SELECT id, name, description, monthly_price, annual_price, currency, trial_days, max_outlets, max_staff_accounts, features
            FROM plans WHERE is_active AND is_public ORDER BY sort_order, name`),
   );
   return rows.map((row) => ({
@@ -91,6 +93,7 @@ export async function publicPlans(): Promise<PublicPlan[]> {
     trialDays: Number(row.trial_days),
     maxOutlets: row.max_outlets,
     maxStaffAccounts: row.max_staff_accounts,
+    features: Array.isArray(row.features) ? row.features.filter((feature): feature is string => typeof feature === "string") : null,
   }));
 }
 

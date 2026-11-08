@@ -81,6 +81,7 @@ describe("Maintenance mode", () => {
       assert.match(dashboard.headers.get("location"), /\/maintenance$/);
       assert.match(await (await fetch(`${server.baseUrl}/maintenance`)).text(), /Upgrading until 2 pm/);
       assert.match(await (await fetch(`${server.baseUrl}/`)).text(), /data-maintenance-banner/);
+      assert.match(await (await fetch(`${server.baseUrl}/login`)).text(), /data-maintenance-banner/);
       const step1 = await fetch(`${server.baseUrl}/api/auth/pharmacies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "admin@web365.ng", password: "Admin@123" }) });
       assert.equal(step1.status, 503);
       assert.notEqual(await new Client(server.baseUrl).login("admin@web365.ng", "HQ"), null, "no new sign-in");
