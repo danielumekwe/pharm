@@ -151,7 +151,8 @@ async function deliver(transport: Transport, message: EmailMessage): Promise<{ o
 
 /** Sends one email and logs it. Never throws for delivery problems: the result says what happened. */
 export async function sendEmail(message: EmailMessage, meta: EmailMeta = {}): Promise<DeliveryResult> {
-  const transport = await emailTransport();
+  const switchedOff = await notificationSwitchedOff(meta.category ?? "pharmacy");
+  const transport: Transport = switchedOff ? { kind: "off", reason: switchedOff } : await emailTransport();
   const category = meta.category ?? "pharmacy";
   const outcome = transport.kind === "off" ? null : await deliver(transport, message);
   const status: DeliveryResult["status"] = !outcome ? "SKIPPED" : outcome.ok ? "SENT" : "FAILED";
@@ -235,4 +236,17 @@ export async function testEmailConnection(): Promise<{ ok: boolean; detail: stri
   } catch (error) {
     return { ok: false, detail: redact(error instanceof Error ? error.message : "Connection failed.", transport) };
   }
+}
+
+/** Control Centre → Notifications: alert and billing emails can be switched off platform-wide. */
+async function notificationSwitchedOff(category: NonNullable<EmailMeta["category"]>) {
+  if (category !== "pharmacy" && category !== "billing") return null;
+  try {
+    const { value } = await readPlatformSetting("notifications.global");
+    if (category === "pharmacy" && !value.pharmacyAlertEmails) return "Alert emails are switched off by Web365.";
+    if (category === "billing" && !value.billingEmails) return "Billing emails are switched off by Web365.";
+  } catch {
+    // settings unavailable: send as usual
+  }
+  return null;
 }

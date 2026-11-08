@@ -134,6 +134,22 @@ export const EMAIL_TEMPLATES = {
     subject: "About your request to close {{pharmacy}}",
     body: "Hello {{name}},\n\nYour request to close {{pharmacy}} was not carried out: {{note}}\nThe pharmacy stays open. For questions, contact {{support_email}}.",
   },
+  support_new: {
+    label: "Support ticket (to Web365)",
+    when: "a pharmacy opens a support ticket or replies to one (sent to the new-pharmacy notice address).",
+    variables: ["number", "subject", "pharmacy", "name", "event", "message", "link"],
+    required: ["number", "link"],
+    subject: "[Ticket #{{number}}] {{event}}: {{subject}}",
+    body: "{{name}} ({{pharmacy}}) wrote:\n\n{{message}}\n\nAnswer in the Control Centre:\n{{link}}",
+  },
+  support_reply: {
+    label: "Support reply (to the pharmacy)",
+    when: "Web365 answers a pharmacy's support ticket.",
+    variables: ["name", "number", "subject", "message", "status", "link"],
+    required: ["number", "link"],
+    subject: "Re: [Ticket #{{number}}] {{subject}}",
+    body: "Hello {{name}},\n\nWeb365 support replied to your ticket #{{number}} ({{status}}):\n\n{{message}}\n\nSee the conversation and reply here:\n{{link}}",
+  },
   system_announcement: {
     label: "System announcement",
     when: "Web365 sends an announcement (phase 7F).",
@@ -236,13 +252,22 @@ function htmlFrom(text: string, values: Record<string, string>) {
 export async function renderEmail(key: TemplateKey, values: Record<string, string | number | null | undefined>) {
   const template = await getTemplate(key);
   let supportEmail = "";
+  let appName = "Pharmacy ERP";
   try {
     const email = await readPlatformSetting("email.delivery");
     supportEmail = email.value.replyTo || email.value.senderEmail;
   } catch {
-    // no settings yet
+    // no email settings yet
   }
-  const all: Record<string, string> = { app_name: "Pharmacy ERP", support_email: supportEmail };
+  try {
+    // Control Centre → Branding: the product name and support address in every email.
+    const branding = await readPlatformSetting("branding.app");
+    appName = branding.value.appName;
+    supportEmail = branding.value.supportEmail || supportEmail;
+  } catch {
+    // defaults
+  }
+  const all: Record<string, string> = { app_name: appName, support_email: supportEmail };
   for (const [name, value] of Object.entries(values)) all[name] = value === null || value === undefined ? "" : String(value);
   return { subject: fill(template.subject, all).replace(/\s+/g, " ").trim(), text: fill(template.body, all), html: htmlFrom(template.body, all) };
 }
@@ -251,7 +276,7 @@ const SAMPLE: Record<string, string> = {
   name: "Ngozi Okafor", pharmacy: "Sunrise Pharmacy", link: "https://example.com/link", hours: "48", minutes: "60", days: "7", role: "Cashier",
   invited_by: "Tunde Bello", owner_name: "Ngozi Okafor", owner_email: "ngozi@example.com", plan: "Professional", state: "Lagos", country: "Nigeria",
   trial_end: "21 November 2026", days_left: "3", period_end: "8 December 2026", amount: "NGN 30,000.00", invoice_number: "W365-2026-000001",
-  reason: "Card declined", purge_date: "6 February 2027", note: "Please settle the open invoice first.", title: "Scheduled maintenance", message: "The platform will be unavailable on Sunday from 01:00 to 02:00.",
+  number: "1024", subject: "Receipt printer stopped working", event: "New ticket", status: "waiting for you", reason: "Card declined", purge_date: "6 February 2027", note: "Please settle the open invoice first.", title: "Scheduled maintenance", message: "The platform will be unavailable on Sunday from 01:00 to 02:00.",
 };
 
 /** Checks and renders unsaved template text with sample values. */

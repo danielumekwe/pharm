@@ -131,6 +131,35 @@ export const SETTINGS = {
     },
     secrets: {},
   },
+  "branding.app": {
+    label: "Application branding",
+    permission: "settings.manage",
+    value: z.object({
+      /** The product name in emails, page titles of help pages and the sign-in page. */
+      appName: z.string().trim().min(2).max(60),
+      supportEmail: z.union([z.string().trim().toLowerCase().email(), z.literal("")]),
+      supportPhone: z.string().trim().max(40),
+      loginTagline: z.string().trim().max(160),
+    }),
+    defaults: { appName: "Pharmacy ERP", supportEmail: "", supportPhone: "", loginTagline: "" },
+    secrets: {},
+  },
+  "notifications.global": {
+    label: "Notification switches",
+    permission: "settings.manage",
+    value: z.object({
+      /** Stock, expiry and summary emails sent by pharmacies' alert settings. */
+      pharmacyAlertEmails: z.boolean(),
+      /** Android push notifications. */
+      pushNotifications: z.boolean(),
+      /** Payment confirmations and failures. Account emails (confirm, reset, invitations) are always sent. */
+      billingEmails: z.boolean(),
+      /** Announcements sent by email. */
+      announcementEmails: z.boolean(),
+    }),
+    defaults: { pharmacyAlertEmails: true, pushNotifications: true, billingEmails: true, announcementEmails: true },
+    secrets: {},
+  },
 } satisfies Record<string, Definition<z.ZodTypeAny>>;
 
 function isCidr(value: string) {

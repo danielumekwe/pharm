@@ -112,6 +112,8 @@ export const NAVIGATION: NavGroup[] = [
       { name: "Setup Checklist", href: "/onboarding", icon: ListChecks, keywords: "getting started onboarding business profile", requires: ["settings.manage"] },
       { name: "Web365 Support Access", href: "/support-access", icon: LifeBuoy, keywords: "support help web365 access", requires: ["settings.manage"] },
       { name: "Notifications", href: "/notifications", icon: Bell },
+      { name: "Help & Support", href: "/support", icon: LifeBuoy, keywords: "ticket help contact web365 complaint bug feature" },
+      { name: "Help Articles", href: "/help", icon: FileText, keywords: "guide how to knowledge base faq" },
       { name: "Audit Logs", href: "/audit", icon: ScrollText },
       { name: "System Settings", href: "/settings", icon: Settings },
       { name: "Business Profile", href: "/settings#business-profile", icon: FileText, keywords: "logo name branding" },

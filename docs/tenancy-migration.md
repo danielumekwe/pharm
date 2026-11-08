@@ -277,3 +277,22 @@ The page also shows the version, commit, runtime, database size, largest tables 
 Going live also needs:
 
 - [ ] Before each deployment, take a backup (`npm run db:backup -- --confirm-remote` against Neon, or create a Neon branch and note it on the System page).
+
+## Phase 7F (support, announcements, help, branding, notifications, integrations)
+
+Migration `20261117090000_support` (rollback: `prisma/rollbacks/20261117090000_support/down.sql`, run before the 7E rollback; it drops tickets, announcements and help articles):
+
+- `support_tickets` (numbered from `support_tickets_number_seq`) and `support_messages`. Messages are append-only for the app, and tickets cannot be deleted. Internal notes are never shown to the pharmacy.
+- `announcements` (audience: all pharmacies, or by plan, subscription status or named pharmacies; optional start and end dates) and `announcement_reads` (who dismissed which).
+- `kb_articles`: the help articles pharmacies see under **Help Articles**.
+
+Re-run `prisma/sql/app-role.sql` afterwards. Rehearsed on 8 November 2026 on the live-data copy: counts and totals matched, there was no drift, the rollback was lossless (0 tables differ) and re-applying worked.
+
+How it works:
+
+- **Pharmacies**: **Help & Support** to open tickets and reply, **Help Articles** to read the knowledge base, and announcement banners at the top of every page.
+- **Web365**: **Support** (queue, assign, priority, status, replies, internal notes), **Announcements**, **Help articles**, **Branding**, and **Integrations**.
+- The two new platform permissions, `support.tickets` and `content.manage`, belong to Platform Super Admins and Platform Support.
+- **Emails**: staff replies are emailed to whoever opened the ticket. New tickets and pharmacy replies go to the new-pharmacy notice address set on the Email page.
+- **Notification switches**: alert emails, push notifications, billing emails and announcement emails can each be turned off platform-wide. Switched-off messages are logged as not sent. Account emails are always sent.
+- **Branding**: the product name and support contact used in every email and on the Help pages.

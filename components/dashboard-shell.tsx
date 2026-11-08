@@ -6,6 +6,7 @@ import { signOut, useSession } from "next-auth/react";
 import { Bell, Building2, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldAlert, Store, UserCog, X } from "lucide-react";
 import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
+import { AnnouncementBanner } from "@/components/announcement-banner";
 import { BrandLogo, BrandWordmark } from "@/components/branding";
 import { minutesUntil } from "@/lib/format";
 import { activeHref, NAVIGATION, type NavGroup, type NavItem } from "@/lib/navigation";
@@ -562,6 +563,7 @@ function Shell({ children }: { children: ReactNode }) {
 
           <main className="theme-pharm min-w-0 flex-1 p-4 md:p-6">
             <AccessDeniedNotice />
+            <AnnouncementBanner />
             {children}
           </main>
         </div>

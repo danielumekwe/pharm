@@ -79,3 +79,13 @@ BEGIN
         REVOKE UPDATE, DELETE, TRUNCATE ON "platform_backups" FROM pharm_app;
     END IF;
 END $$;
+
+-- Support history is kept: ticket messages are append-only; tickets change status, never disappear.
+DO $$
+BEGIN
+    IF to_regclass('support_messages') IS NOT NULL THEN
+        REVOKE UPDATE, DELETE, TRUNCATE ON "support_messages" FROM pharm_app;
+        REVOKE DELETE, TRUNCATE ON "support_tickets", "announcements" FROM pharm_app;
+        GRANT USAGE, SELECT ON SEQUENCE "support_tickets_number_seq" TO pharm_app;
+    END IF;
+END $$;

@@ -45,6 +45,9 @@ async function accessToken() {
 
 export async function sendPush(deviceToken: string, message: { title: string; body: string; data?: Record<string, string> }): Promise<DeliveryResult> {
   if (!pushConfigured()) return { status: "SKIPPED", detail: "Push not configured (set FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY)" };
+  const { readPlatformSetting } = await import("@/lib/platform/settings");
+  const switches = await readPlatformSetting("notifications.global").catch(() => null);
+  if (switches && !switches.value.pushNotifications) return { status: "SKIPPED", detail: "Push notifications are switched off by Web365." };
   try {
     const response = await fetch(`https://fcm.googleapis.com/v1/projects/${process.env.FCM_PROJECT_ID}/messages:send`, {
       method: "POST",

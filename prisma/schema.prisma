@@ -38,6 +38,7 @@ model Tenant {
   deletionRequests         TenantDeletionRequest[]
   subscriptionAdjustments  SubscriptionAdjustment[]
   refunds                  BillingRefund[]
+  supportTickets           SupportTicket[]
   /// Closed pharmacies: the earliest date their data may be purged.
   purgeAfter               DateTime?      @map("purge_after") @db.Timestamptz(6)
   createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1000,6 +1001,7 @@ model PlatformUser {
   passwordMustChange       Boolean        @default(false) @map("password_must_change")
   supportRequests          SupportAccessGrant[]
   sessions                 PlatformSession[]
+  assignedTickets          SupportTicket[]
 
   @@map("platform_users")
 }
@@ -1294,6 +1296,98 @@ model PlatformBackup {
 
   @@index([takenAt(sort: Desc)], map: "platform_backups_taken_at_idx")
   @@map("platform_backups")
+}
+
+/// A support ticket from a pharmacy to Web365.
+model SupportTicket {
+  id                       String         @id
+  number                   Int            @unique(map: "support_tickets_number_key") @default(autoincrement())
+  tenantId                 String         @map("tenant_id")
+  tenant                   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy                String         @map("created_by")
+  createdByName            String         @map("created_by_name")
+  createdByEmail           String         @map("created_by_email")
+  category                 String         // QUESTION | BUG | FEATURE | COMPLAINT | BILLING
+  subject                  String
+  status                   String         @default("OPEN") // OPEN | IN_PROGRESS | WAITING_CUSTOMER | RESOLVED | CLOSED
+  priority                 String         @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  assignedTo               String?        @map("assigned_to")
+  assignee                 PlatformUser?  @relation(fields: [assignedTo], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  lastReplyBy              String?        @map("last_reply_by")
+  resolvedAt               DateTime?      @map("resolved_at") @db.Timestamptz(6)
+  messages                 SupportMessage[]
+
+  @@index([tenantId, updatedAt(sort: Desc)], map: "support_tickets_tenant_idx")
+  @@index([status, updatedAt(sort: Desc)], map: "support_tickets_status_idx")
+  @@map("support_tickets")
+}
+
+/// A message on a support ticket (internal notes are Web365-only); append-only.
+model SupportMessage {
+  id                       String         @id
+  ticketId                 String         @map("ticket_id")
+  ticket                   SupportTicket  @relation(fields: [ticketId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  authorType               String         @map("author_type")
+  authorId                 String         @map("author_id")
+  authorName               String         @map("author_name")
+  body                     String
+  internal                 Boolean        @default(false)
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([ticketId, createdAt], map: "support_messages_ticket_idx")
+  @@map("support_messages")
+}
+
+/// An announcement from Web365 to some or all pharmacies.
+model Announcement {
+  id                       String         @id
+  title                    String
+  body                     String
+  severity                 String         @default("info")
+  audience                 Json
+  status                   String         @default("DRAFT")
+  startsAt                 DateTime?      @map("starts_at") @db.Timestamptz(6)
+  endsAt                   DateTime?      @map("ends_at") @db.Timestamptz(6)
+  emailOwners              Boolean        @default(false) @map("email_owners")
+  emailedAt                DateTime?      @map("emailed_at") @db.Timestamptz(6)
+  createdBy                String         @map("created_by")
+  createdByName            String         @map("created_by_name")
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  publishedAt              DateTime?      @map("published_at") @db.Timestamptz(6)
+  reads                    AnnouncementRead[]
+
+  @@index([status, startsAt], map: "announcements_status_idx")
+  @@map("announcements")
+}
+
+/// Who has dismissed an announcement.
+model AnnouncementRead {
+  announcementId           String         @map("announcement_id")
+  announcement             Announcement   @relation(fields: [announcementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  userId                   String         @map("user_id")
+  tenantId                 String         @map("tenant_id")
+  readAt                   DateTime       @default(now()) @map("read_at") @db.Timestamptz(6)
+
+  @@id([announcementId, userId, tenantId])
+  @@map("announcement_reads")
+}
+
+/// A help article written by Web365.
+model KbArticle {
+  id                       String         @id
+  slug                     String         @unique(map: "kb_articles_slug_key")
+  title                    String
+  category                 String
+  body                     String
+  published                Boolean        @default(false)
+  sortOrder                Int            @default(0) @map("sort_order")
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy                String?        @map("updated_by")
+
+  @@map("kb_articles")
 }
 
 /// One background job run across all pharmacies.
