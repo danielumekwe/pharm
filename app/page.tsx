@@ -293,6 +293,49 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* Android app */}
+        <section id="android-app" aria-labelledby="android-title" className="bg-brand-sky py-20 sm:py-24">
+          <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.14em] text-brand-green-dark">Android app</p>
+              <h2 id="android-title" className="mt-3 text-3xl font-bold tracking-tight text-brand-ink sm:text-4xl">Your Pharmacy in Your Pocket</h2>
+              <p className="mt-4 text-lg leading-relaxed text-brand-muted">
+                The PharmaERP app for Android works with the same account and the same live data as the web: sell at the counter, scan barcodes with the phone camera, and keep an eye on sales and stock from anywhere.
+              </p>
+              <ul className="mt-6 grid gap-3 sm:grid-cols-2">
+                {["Point of sale with camera barcode scanning", "Today's sales, payment mix and top products", "Low-stock, out-of-stock and expiry alerts", "Transfers, sales history and the daily report"].map((point) => (
+                  <li key={point} className="flex gap-2 text-brand-ink"><Check className="mt-0.5 h-5 w-5 shrink-0 text-brand-green" aria-hidden="true" />{point}</li>
+                ))}
+              </ul>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <a href="/downloads/PharmaERP.apk" download className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-ink px-6 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-black" data-android-download>
+                  <Smartphone className="h-5 w-5" aria-hidden="true" /> Download for Android
+                </a>
+                <p className="text-sm text-brand-muted">Free with every plan · Android 7 or later</p>
+              </div>
+              <p className="mt-4 max-w-xl text-xs leading-relaxed text-brand-muted">
+                Installing: open the downloaded file on your phone. If Android asks, allow installs from your browser for this download. Updates install over the existing app.
+              </p>
+            </div>
+            <div aria-hidden="true" className="mx-auto w-full max-w-[290px]">
+              <div className="rounded-[2.5rem] border-[10px] border-brand-ink bg-[#f2f6f3] p-3 shadow-2xl">
+                <div className="rounded-2xl bg-[#0a4d29] p-4 text-white">
+                  <p className="text-xs text-lime-200">Net sales · 7 days</p>
+                  <p className="mt-1 text-2xl font-bold">₦1,284,500</p>
+                  <div className="mt-3 flex h-14 items-end gap-1.5">{[40, 65, 50, 80, 55, 95, 70].map((height, index) => <span key={index} className="flex-1 rounded-sm bg-lime-300" style={{ height: `${height}%` }} />)}</div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {[["Low stock", "12", "text-amber-600"], ["Out of stock", "3", "text-rose-600"], ["Expiry alerts", "7", "text-violet-600"], ["Outlets", "4", "text-sky-700"]].map(([label, value, tone]) => (
+                    <div key={label} className="rounded-xl bg-white p-2.5 shadow-sm"><p className={`text-lg font-bold ${tone}`}>{value}</p><p className="text-[11px] text-slate-500">{label}</p></div>
+                  ))}
+                </div>
+                <div className="mt-3 rounded-xl bg-white p-3 text-center text-sm font-semibold text-[#0a4d29] shadow-sm">New sale · scan barcode</div>
+                <p className="mt-2 text-center text-[10px] text-slate-400">Sample figures</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Pricing */}
         <section id="pricing" aria-labelledby="pricing-title" className="bg-white py-20 sm:py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

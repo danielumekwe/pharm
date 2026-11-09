@@ -18,6 +18,7 @@ export const NAV_LINKS = [
   { id: "top", label: "Home" },
   { id: "features", label: "Features" },
   { id: "how-it-works", label: "How It Works" },
+  { id: "android-app", label: "Android App" },
   { id: "pricing", label: "Pricing" },
   { id: "about", label: "About" },
   { id: "contact", label: "Contact" },

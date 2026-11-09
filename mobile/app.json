@@ -38,7 +38,8 @@
           "cameraPermission": "PharmaERP uses the camera to scan product barcodes.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "./plugins/with-release-signing"
     ],
     "extra": {
       "apiUrl": "https://www.pharmerp.name.ng"

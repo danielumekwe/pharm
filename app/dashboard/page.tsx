@@ -30,6 +30,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { AppDownloadBanner } from "@/components/app-download-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { DonutChart, TrendChart } from "@/components/dashboard/charts";
 import { BarList, Card, CardLink, Chip, Empty, Kpi, KpiGrid, Pill, PrimaryAction, QuickActions } from "@/components/dashboard/widgets";
@@ -73,6 +74,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
             </div>
             <p className="text-sm text-slate-400">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" })}</p>
           </div>
+          <AppDownloadBanner />
           {setup && setup.completed < setup.total ? (
             <Link href="/onboarding" data-setup-banner className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-green-200 bg-green-50 px-5 py-4 text-green-900 hover:border-green-400">
               <span><span className="font-semibold">Finish setting up your pharmacy</span> · {setup.completed} of {setup.total} steps done</span>
