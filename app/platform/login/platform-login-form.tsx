@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { buttonClass, Field, inputClass, Notice } from "@/components/auth-card";
+import { preloadRecaptcha, recaptchaToken } from "@/lib/recaptcha-client";
 
 export function PlatformLoginForm() {
   const router = useRouter();
@@ -13,6 +14,7 @@ export function PlatformLoginForm() {
   const [step, setStep] = useState<"password" | "code">("password");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => preloadRecaptcha(), []);
 
   async function post(url: string, body: unknown) {
     setBusy(true);
@@ -25,7 +27,7 @@ export function PlatformLoginForm() {
 
   async function submitPassword(event: React.FormEvent) {
     event.preventDefault();
-    const { response, result } = await post("/api/platform/login", { email, password });
+    const { response, result } = await post("/api/platform/login", { email, password, recaptchaToken: await recaptchaToken("platform_login") });
     if (!response.ok) return setError(result.error ?? "Sign-in failed.");
     setPassword("");
     if (result.twoFactor) return setStep("code");

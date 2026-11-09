@@ -9,7 +9,7 @@ import { AUTH_SECRET } from "@/lib/auth-secret";
 import { platformQuery } from "@/lib/db/database";
 import { DomainError } from "@/lib/erp/services";
 import { verifyPassword } from "@/lib/password";
-import { RateLimitError } from "@/lib/saas/rate-limit";
+import { RateLimitError, rateLimitErrorResponse } from "@/lib/saas/rate-limit";
 
 export const PLATFORM_COOKIE = "pharm_platform";
 const SECRET = `${AUTH_SECRET}:web365-platform`;
@@ -25,6 +25,7 @@ export type PlatformPermission =
   | "support.request"
   | "audit.view"
   | "staff.manage"
+  | "rateLimits.manage"
   | "support.tickets"
   | "content.manage";
 
@@ -49,7 +50,7 @@ export const PLATFORM_ROLE_LABELS: Record<PlatformRole, string> = {
 };
 /** Least privilege: each role gets only what its job needs. */
 const ROLE_PERMISSIONS: Record<PlatformRole, PlatformPermission[]> = {
-  PLATFORM_SUPER_ADMIN: ["dashboard.view", "tenants.view", "tenants.manage", "plans.manage", "billing.manage", "settings.manage", "support.request", "audit.view", "staff.manage", "support.tickets", "content.manage"],
+  PLATFORM_SUPER_ADMIN: ["dashboard.view", "tenants.view", "tenants.manage", "plans.manage", "billing.manage", "settings.manage", "support.request", "audit.view", "staff.manage", "rateLimits.manage", "support.tickets", "content.manage"],
   PLATFORM_SUPPORT: ["dashboard.view", "tenants.view", "support.request", "audit.view", "support.tickets", "content.manage"],
   BILLING_ADMIN: ["dashboard.view", "tenants.view", "plans.manage", "billing.manage", "audit.view"],
   TECHNICAL_ADMIN: ["dashboard.view", "tenants.view", "settings.manage", "audit.view"],
@@ -182,7 +183,7 @@ export async function platformGuarded(permission: PlatformPermission | "self", h
     return result instanceof NextResponse ? result : NextResponse.json(result, { status: successStatus });
   } catch (error) {
     if (error instanceof DomainError) return NextResponse.json({ error: error.message }, { status: error.status });
-    if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429 });
+    if (error instanceof RateLimitError) return rateLimitErrorResponse(error);
     if (error && typeof error === "object" && "issues" in error) return NextResponse.json({ error: "Some fields are missing or invalid." }, { status: 422 });
     console.error("[platform]", error);
     return NextResponse.json({ error: "Unexpected server error." }, { status: 500 });

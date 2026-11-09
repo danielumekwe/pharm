@@ -48,6 +48,8 @@ export async function startServer(extraEnv = {}) {
     EMAIL_TRANSPORT: "json",
     ALERT_SCHEDULER: "off",
     DATABASE_APP_ROLE: "pharm_app",
+    RECAPTCHA: "off", // no browser in tests, so no reCAPTCHA tokens
+    RATE_LIMIT_TRUSTED_PROXY_HEADER: "x-forwarded-for", // test clients act as a trusted ingress
     RATE_LIMIT: "off", // tests sign in many times from one address; tests/tenant-isolation.test.mjs turns it on
     EMAIL_OUTBOX_DIR: dir, // JSON-transport emails are also written here, so tests can follow their links
     SETTINGS_ENCRYPTION_KEY: "test-only-settings-encryption-key-0123456789",

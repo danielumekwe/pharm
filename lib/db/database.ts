@@ -789,6 +789,11 @@ export async function platformQuery<T>(run: (query: PlatformQuery) => Promise<T>
   return database.platform(run, options);
 }
 
+/** Runs fn with no request transaction in scope (for work scheduled to run after the response, e.g. after()). */
+export function outsideTransaction<T>(fn: () => T): T {
+  return transactions.exit(() => txTenant.exit(fn));
+}
+
 export function getDb() {
   return registry.__pharmDb ?? null;
 }

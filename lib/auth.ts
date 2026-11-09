@@ -9,12 +9,13 @@ import { getOutletById, users } from "@/lib/data";
 import { allowedOutletIds, canSwitchTo, HEAD_OFFICE, resolveActiveOutlet } from "@/lib/erp/access";
 import { activeImpersonation } from "@/lib/erp/impersonation";
 import { recordSignInAttempt } from "@/lib/platform/security";
+import { verifyRecaptcha } from "@/lib/recaptcha";
 import { maintenanceMessage } from "@/lib/platform/system";
 import { activeSupportGrant, supportActor } from "@/lib/platform/support";
 import { recordAudit } from "@/lib/erp/services";
 import { effectivePermissions, isOutletScoped } from "@/lib/rbac";
 import { accountIdsFor, activeMembership, pharmaciesFor, pharmacyNames, suspendedMessage, suspendedPharmaciesFor, verifiedAccountIds } from "@/lib/saas/identity";
-import { limitSignIn, recordSignInFailure } from "@/lib/saas/rate-limit";
+import { clientAddress, limitSignIn } from "@/lib/saas/rate-limit";
 import { runInTenant } from "@/lib/saas/tenant";
 
 function outletLabel(id: string | null) {
@@ -56,7 +57,6 @@ export async function authorizeCredentials(credentials: unknown): Promise<Signed
 
   const accountIds = await verifiedAccountIds(identifier, password);
   if (!accountIds.length) {
-    recordSignInFailure(identifier);
     await recordSignInAttempt({ surface: "pharmacy", identifier, outcome: "bad_password", tenantId });
     await recordFailedSignIn(identifier, tenantId);
     return null;
@@ -181,8 +181,13 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
         tenantId: { label: "Pharmacy", type: "text" },
         outletId: { label: "Outlet", type: "text" },
+        recaptchaToken: { label: "reCAPTCHA", type: "text" },
       },
-      authorize: (credentials) => authorizeCredentials(credentials),
+      // Web sign-in only; the native app's token login (/api/mobile/login) cannot run reCAPTCHA.
+      authorize: async (credentials) => {
+        await verifyRecaptcha(credentials?.recaptchaToken, "login", await clientAddress());
+        return authorizeCredentials(credentials);
+      },
     }),
   ],
   callbacks: {

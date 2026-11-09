@@ -13,7 +13,7 @@ import { DomainError } from "@/lib/erp/services";
 import type { Actor } from "@/lib/erp/types";
 import { canAny, type Permission } from "@/lib/rbac";
 import { runInTenant, TenantRequiredError } from "@/lib/saas/tenant";
-import { RateLimitError } from "@/lib/saas/rate-limit";
+import { RateLimitError, rateLimitErrorResponse } from "@/lib/saas/rate-limit";
 import { assertSubscriptionAccess, subscriptionAccessProblem } from "@/lib/saas/subscriptions";
 
 /** The running transaction's pharmacy, if it is active. Suspended or closed pharmacies get no access. */
@@ -105,7 +105,7 @@ class RolledBack extends Error {
 function errorResponse(error: unknown) {
   if (error instanceof DomainError) return NextResponse.json({ error: error.message }, { status: error.status });
   if ((error as Error)?.name === "MaintenanceError") return NextResponse.json({ error: (error as Error).message, maintenance: true }, { status: 503 });
-  if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429, headers: { "Retry-After": String(Math.ceil(error.retryAfterSeconds)) } });
+  if (error instanceof RateLimitError) return rateLimitErrorResponse(error);
   // Matched by name as well: Next.js may bundle the database module into more than one chunk, and instanceof
   // fails across copies of a class.
   if (error instanceof TenantRequiredError || (error as Error)?.name === "TenantRequiredError") return NextResponse.json({ error: "Sign in required." }, { status: 401 });

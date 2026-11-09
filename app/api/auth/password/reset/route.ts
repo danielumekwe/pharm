@@ -6,7 +6,6 @@ import { users } from "@/lib/data";
 import { recordAudit } from "@/lib/erp/services";
 import { hashPassword } from "@/lib/password";
 import { consumeToken } from "@/lib/saas/auth-tokens";
-import { clientAddress, hit, RateLimitError } from "@/lib/saas/rate-limit";
 import { strongPassword } from "@/lib/saas/registration";
 import { runInTenant } from "@/lib/saas/tenant";
 
@@ -15,7 +14,6 @@ const schema = z.object({ token: z.string().max(100), password: z.string().max(1
 /** Public: sets a new password from a reset link. Every existing session of the account is signed out. */
 export async function POST(request: Request) {
   try {
-    hit(`reset:ip:${await clientAddress()}`, 20, 15 * 60_000);
     const parsed = schema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     // Check the new password first, so a weak one does not use up the link.
@@ -38,7 +36,6 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
-    if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429 });
     console.error("[reset-password]", error);
     return NextResponse.json({ error: "Password reset is unavailable right now." }, { status: 503 });
   }

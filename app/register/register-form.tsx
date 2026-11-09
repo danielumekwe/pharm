@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { buttonClass, Field, inputClass, Notice } from "@/components/auth-card";
+import { preloadRecaptcha, recaptchaToken } from "@/lib/recaptcha-client";
 import type { PublicPlan } from "@/lib/saas/registration";
 
 type Props = { plans: PublicPlan[]; countries: { code: string; name: string }[]; currencies: string[]; states: string[] };
@@ -29,6 +30,7 @@ export function RegisterForm({ plans, countries, currencies, states }: Props) {
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => preloadRecaptcha(), []);
   const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((current) => ({ ...current, [key]: event.target.value }));
 
   async function submit(event: React.FormEvent) {
@@ -37,10 +39,10 @@ export function RegisterForm({ plans, countries, currencies, states }: Props) {
     if (form.password !== form.confirm) return setError("The two passwords do not match.");
     setBusy(true);
     try {
-      const response = await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, confirm: undefined, requestId }) });
+      const response = await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, confirm: undefined, requestId, recaptchaToken: await recaptchaToken("register") }) });
       const body = (await response.json().catch(() => ({}))) as { tenantId?: string; error?: string };
       if (!response.ok || !body.tenantId) throw new Error(body.error ?? "Registration failed. Please try again.");
-      const result = await signIn("credentials", { identifier: form.ownerEmail, password: form.password, tenantId: body.tenantId, outletId: "HQ", redirect: false });
+      const result = await signIn("credentials", { identifier: form.ownerEmail, password: form.password, tenantId: body.tenantId, outletId: "HQ", recaptchaToken: (await recaptchaToken("login")) ?? "", redirect: false });
       if (result?.error) {
         router.push("/login?registered=1");
         return;

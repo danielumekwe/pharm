@@ -1,0 +1,16 @@
+export const RATE_LIMIT_CATEGORY_IDS = [
+  "api_general",
+  "login",
+  "registration",
+  "password_reset",
+  "email_verification",
+  "otp_verification",
+  "pos_transactions",
+  "product_search",
+  "barcode_lookup",
+  "inventory_operations",
+  "stock_transfers",
+  "report_generation",
+  "file_uploads",
+  "public_forms",
+] as const;

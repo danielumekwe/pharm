@@ -3,10 +3,11 @@ import { z } from "zod";
 
 import { recordPlatformAudit } from "@/lib/platform/audit";
 import { ipAllowed, platformLockout, recordSignInAttempt, securityPolicy } from "@/lib/platform/security";
+import { isCaptchaError, verifyRecaptcha } from "@/lib/recaptcha";
 import { startPlatformSession, startTwoFactorChallenge, verifyPlatformCredentials } from "@/lib/platform/session";
-import { clientAddress, hit, RateLimitError } from "@/lib/saas/rate-limit";
+import { clientAddress } from "@/lib/saas/rate-limit";
 
-const schema = z.object({ email: z.string().trim().toLowerCase().email().max(160), password: z.string().min(1).max(128) });
+const schema = z.object({ email: z.string().trim().toLowerCase().email().max(160), password: z.string().min(1).max(128), recaptchaToken: z.string().max(4000).optional() });
 
 /**
  * Web365 staff sign-in, step 1 (separate from pharmacy sign-in). Every attempt is logged. Accounts lock after
@@ -22,11 +23,22 @@ export async function POST(request: Request) {
       await recordSignInAttempt({ surface: "platform", identifier: email, outcome: "blocked_ip" });
       return NextResponse.json({ error: "The Control Centre cannot be used from this network." }, { status: 403 });
     }
-    hit(`platform-login:ip:${await clientAddress()}`, 30, 15 * 60_000);
+    await verifyRecaptcha(parsed.data.recaptchaToken, "platform_login", await clientAddress());
     const locked = await platformLockout(email, policy);
     if (locked) {
       await recordSignInAttempt({ surface: "platform", identifier: email, outcome: "locked" });
-      return NextResponse.json({ error: `Too many failed attempts. Try again in ${locked} minute(s).` }, { status: 429 });
+      return NextResponse.json(
+        { error: `Too many failed attempts. Try again in ${locked} minute(s).` },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(locked * 60),
+            "RateLimit-Limit": String(policy.maxFailedAttempts),
+            "RateLimit-Remaining": "0",
+            "RateLimit-Reset": String(Math.ceil((Date.now() + locked * 60_000) / 1000)),
+          },
+        },
+      );
     }
     const result = await verifyPlatformCredentials(email, password);
     if (!result.actor) {
@@ -43,7 +55,8 @@ export async function POST(request: Request) {
     await recordPlatformAudit({ id: actor.id, name: `${actor.name} (Web365)`, type: "platform" }, { action: "platform.login", summary: `${actor.name} signed in to the platform` });
     return startPlatformSession(NextResponse.json({ ok: true, name: actor.name, role: actor.role }), actor, request, { twoFactor: false });
   } catch (error) {
-    if (error instanceof RateLimitError || (error instanceof Error && error.name === "RateLimitError")) {
+    if (isCaptchaError(error)) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof Error && error.name === "RateLimitError") {
       await recordSignInAttempt({ surface: "platform", identifier: email, outcome: "rate_limited" });
       return NextResponse.json({ error: (error as Error).message }, { status: 429 });
     }

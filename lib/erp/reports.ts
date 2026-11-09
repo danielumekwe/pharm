@@ -9,7 +9,8 @@ import { can, isOutletScoped } from "@/lib/rbac";
 const DAY = 1000 * 60 * 60 * 24;
 export const REPORT_PERIODS = [7, 30, 90] as const;
 
-export type ReportOptions = { days: number; outletId: string | null };
+/** day: one business day (YYYY-MM-DD, West Africa Time) instead of the rolling period, e.g. the daily report. */
+export type ReportOptions = { days: number; outletId: string | null; day?: string };
 
 function pct(part: number, whole: number) {
   return whole ? Math.round((part / whole) * 1000) / 10 : 0;
@@ -17,7 +18,8 @@ function pct(part: number, whole: number) {
 
 export function buildReport(actor: Actor, options: ReportOptions) {
   const store = getStore();
-  const days = (REPORT_PERIODS as readonly number[]).includes(options.days) ? options.days : 30;
+  const singleDay = options.day && /^\d{4}-\d{2}-\d{2}$/.test(options.day) ? options.day : null;
+  const days = singleDay ? 1 : (REPORT_PERIODS as readonly number[]).includes(options.days) ? options.days : 30;
   const sections = {
     sales: can(actor, "reports.sales"),
     inventory: can(actor, "reports.inventory"),
@@ -28,13 +30,16 @@ export function buildReport(actor: Actor, options: ReportOptions) {
   const outletId = consolidated ? options.outletId : (actor.outletId ?? actor.outletIds[0] ?? null);
   const inScope = (id: string | null | undefined) => !outletId || id === outletId;
 
-  const now = Date.now();
+  const dayStart = singleDay ? Date.parse(`${singleDay}T00:00:00+01:00`) : null;
+  const now = dayStart !== null ? dayStart + DAY : Date.now();
   const start = new Date(now - days * DAY).toISOString();
+  const end = new Date(now).toISOString();
+  const lastExpenseDay = singleDay ?? "9999-12-31";
   const previousStart = new Date(now - 2 * days * DAY).toISOString();
   const costOf = (productId: string, fallback: number) => products.find((product) => product.id === productId)?.purchasePrice ?? fallback * 0.7;
 
   const valid = store.sales.filter((sale) => sale.status !== "Voided" && inScope(sale.outletId));
-  const sales = valid.filter((sale) => sale.date >= start);
+  const sales = valid.filter((sale) => sale.date >= start && sale.date < end);
   const previous = valid.filter((sale) => sale.date >= previousStart && sale.date < start);
 
   // ---- summary & P&L
@@ -44,7 +49,7 @@ export function buildReport(actor: Actor, options: ReportOptions) {
   const discounts = sales.reduce((sum, sale) => sum + sale.discount, 0);
   const cogs = sales.reduce((sum, sale) => sum + sale.lines.reduce((acc, line) => acc + line.quantity * costOf(line.productId, line.unitPrice), 0), 0);
   const grossProfit = netSales - cogs;
-  const expenseRows = store.expenses.filter((expense) => expense.date >= start.slice(0, 10) && (expense.status === "Approved" || expense.status === "Paid") && inScope(expense.outletId));
+  const expenseRows = store.expenses.filter((expense) => expense.date >= (singleDay ?? start.slice(0, 10)) && expense.date <= lastExpenseDay && (expense.status === "Approved" || expense.status === "Paid") && inScope(expense.outletId));
   const operatingExpenses = expenseRows.reduce((sum, expense) => sum + expense.amount, 0);
   const previousRevenue = previous.reduce((sum, sale) => sum + sale.total, 0);
 
@@ -61,7 +66,7 @@ export function buildReport(actor: Actor, options: ReportOptions) {
     operatingExpenses,
     netProfit: Math.round(grossProfit - operatingExpenses),
     revenueChange: previousRevenue ? pct(revenue - previousRevenue, previousRevenue) : null,
-    voided: store.sales.filter((sale) => sale.status === "Voided" && sale.date >= start && inScope(sale.outletId)).length,
+    voided: store.sales.filter((sale) => sale.status === "Voided" && sale.date >= start && sale.date < end && inScope(sale.outletId)).length,
   };
 
   // ---- trend (daily up to 31 days, weekly beyond)

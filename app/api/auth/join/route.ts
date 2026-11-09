@@ -5,7 +5,6 @@ import { platformQuery, withDatabaseTransaction } from "@/lib/db/database";
 import { users } from "@/lib/data";
 import { recordAudit } from "@/lib/erp/services";
 import { consumeToken } from "@/lib/saas/auth-tokens";
-import { clientAddress, hit, RateLimitError } from "@/lib/saas/rate-limit";
 import { runInTenant } from "@/lib/saas/tenant";
 
 const schema = z.object({ token: z.string().max(100) });
@@ -13,7 +12,6 @@ const schema = z.object({ token: z.string().max(100) });
 /** Public: accepts an invitation to join another pharmacy with an existing account (from the emailed link). */
 export async function POST(request: Request) {
   try {
-    hit(`join:ip:${await clientAddress()}`, 30, 15 * 60_000);
     const parsed = schema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     const token = await consumeToken(parsed.data.token, "join_pharmacy");
@@ -29,7 +27,6 @@ export async function POST(request: Request) {
     }));
     return NextResponse.json({ ok: true });
   } catch (error) {
-    if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429 });
     console.error("[join]", error);
     return NextResponse.json({ error: "Joining is unavailable right now." }, { status: 503 });
   }

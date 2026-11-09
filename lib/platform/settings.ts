@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import { platformQuery } from "@/lib/db/database";
 import { DomainError } from "@/lib/erp/services";
+import { allTypesOn, TYPE_KEYS, type NotificationType } from "@/lib/notify/whatsapp/catalog";
 import { platformActorRef, recordPlatformAudit } from "@/lib/platform/audit";
 import { decryptSecrets, encryptSecrets, maskSecret } from "@/lib/platform/secrets";
 import type { PlatformActor, PlatformPermission } from "@/lib/platform/session";
@@ -143,6 +144,40 @@ export const SETTINGS = {
     }),
     defaults: { appName: "Pharmacy ERP", supportEmail: "", supportPhone: "", loginTagline: "" },
     secrets: {},
+  },
+  "whatsapp.zoho": {
+    label: "WhatsApp (Zoho CPaaS)",
+    permission: "settings.manage",
+    value: z.object({
+      /** Off: nothing is sent to WhatsApp at all; messages already queued wait. */
+      enabled: z.boolean(),
+      /** The Zoho data centre of the CPaaS account, e.g. https://cpaas.zoho.com. Only Zoho CPaaS hosts are accepted. */
+      baseUrl: z.string().trim().regex(/^https:\/\/cpaas\.zoho\.[a-z]{2,3}(\.[a-z]{2})?$/, "Enter the Zoho CPaaS address for your data centre, e.g. https://cpaas.zoho.com"),
+      /** Sending agent; optional (Zoho uses the agent the API key belongs to). */
+      agentId: z.string().trim().max(60).regex(/^[A-Za-z0-9_-]*$/, "Letters, numbers, - and _ only"),
+      wabaId: z.string().trim().regex(/^\d{0,30}$/, "Digits only"),
+      phoneNumberId: z.string().trim().regex(/^\d{0,30}$/, "Digits only"),
+      /** The WhatsApp number messages are sent from, in international format. */
+      senderNumber: z.union([z.string().trim().regex(/^\+[1-9]\d{7,14}$/, "Use international format, e.g. +2348012345678"), z.literal("")]),
+      /** Used for pharmacy numbers typed without a country code (e.g. 0803… → +234803…). */
+      defaultCountryCode: z.string().trim().regex(/^[1-9]\d{0,2}$/, "Digits only, e.g. 234"),
+      /** Platform-wide switches per notification type; off overrides every pharmacy. */
+      types: z.object(Object.fromEntries(TYPE_KEYS.map((key) => [key, z.boolean()])) as Record<NotificationType, z.ZodBoolean>),
+      /** Cost control: at most this many alert messages (low stock, out of stock, expiry) per pharmacy per day. */
+      alertCapPerDay: z.number().int().min(1).max(500),
+    }).superRefine((value, context) => {
+      if (value.enabled && !value.senderNumber) context.addIssue({ code: "custom", path: ["senderNumber"], message: "Enter the WhatsApp sender number before turning WhatsApp on" });
+    }),
+    defaults: {
+      enabled: false, baseUrl: "https://cpaas.zoho.com", agentId: "", wabaId: "980442141316461", phoneNumberId: "286407000000003001", senderNumber: "",
+      defaultCountryCode: "234", types: allTypesOn(), alertCapPerDay: 20,
+    },
+    secrets: {
+      /** Agent API key, with or without the "Zoho-enczapikey" prefix. */
+      apiKey: z.string().trim().regex(/^(Zoho-enczapikey\s+)?[A-Za-z0-9+/=_-]{20,}$/, "Paste the agent API key from Zoho CPaaS (Agents → API)"),
+      /** Webhook Authentication Key from Zoho CPaaS (Agents → Webhooks → Authentication Key). */
+      webhookKey: z.string().trim().min(16, "Paste the webhook Authentication Key from Zoho CPaaS").max(500),
+    },
   },
   "notifications.global": {
     label: "Notification switches",

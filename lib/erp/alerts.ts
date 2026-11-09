@@ -20,6 +20,8 @@ import { getStore, nextNumber } from "@/lib/erp/store";
 import type { Actor, AlertType, AuditSeverity, InventoryAlert, NotificationDelivery } from "@/lib/erp/types";
 import { sendEmail } from "@/lib/notify/email";
 import { sendPush } from "@/lib/notify/push";
+import { queueNotification } from "@/lib/notify/whatsapp/service";
+import { scopedTenantId } from "@/lib/saas/tenant";
 import { can, effectivePermissions, isOutletScoped, type Permission } from "@/lib/rbac";
 import { newId } from "@/lib/erp/ids";
 
@@ -575,13 +577,33 @@ export async function notifyAlert(alert: InventoryAlert, event: string) {
   for (const recipient of emailRecipients) {
     await deliverEmail({ recipientId: recipient.id, recipientName: recipient.name, event, alertId: alert.id, payload: { to: recipient.email, subject: `[Pharmacy ERP] ${title}`, text: alertEmail(alert, title, body) } });
   }
+  // WhatsApp: only queued here (the background queue sends it), to people the pharmacy authorised.
+  const whatsapp = await queueAlertWhatsApp(alert, event, link);
   alert.history.push({
     at: new Date().toISOString(),
     actor: "System",
     action: "notified",
-    note: `${event}: in-app to ${inAppRecipients.length}, email to ${emailRecipients.length}${emailWanted ? "" : " (email disabled for this event)"}`,
+    note: `${event}: in-app to ${inAppRecipients.length}, email to ${emailRecipients.length}${emailWanted ? "" : " (email disabled for this event)"}${whatsapp ? `, WhatsApp queued for ${whatsapp.queued}${whatsapp.reason ? ` (${whatsapp.reason})` : ""}` : ""}`,
   });
   requestPersist();
+}
+
+async function queueAlertWhatsApp(alert: InventoryAlert, event: string, link: string) {
+  const tenantId = scopedTenantId();
+  if (!tenantId) return null;
+  const available = Number(alert.snapshot.available ?? 0);
+  const type = alert.type === "LOW_STOCK" ? (available <= 0 ? "out_of_stock" : "low_stock") : alert.type === "EXPIRED" ? "expiry" : null;
+  if (!type) return null;
+  return queueNotification({
+    tenantId,
+    type,
+    outletId: alert.outletId,
+    dedupeKey: `${type}:${tenantId}:${alert.id}:${event}`,
+    values: {
+      outlet: outletName(alert.outletId), product: alert.productName, available, minimum: alert.snapshot.minStock ?? null,
+      batch: alert.batchNumber ?? null, expiry_date: alert.snapshot.expiryDate ?? null, quantity: available, link: `${appUrl()}${link}`,
+    },
+  });
 }
 
 export function notificationsFor(actor: Actor) {

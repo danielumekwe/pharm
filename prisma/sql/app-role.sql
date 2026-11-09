@@ -89,3 +89,11 @@ BEGIN
         GRANT USAGE, SELECT ON SEQUENCE "support_tickets_number_seq" TO pharm_app;
     END IF;
 END $$;
+
+-- WhatsApp message history is kept: messages change status (sent, delivered, read), never disappear.
+DO $$
+BEGIN
+    IF to_regclass('whatsapp_messages') IS NOT NULL THEN
+        REVOKE DELETE, TRUNCATE ON "whatsapp_messages" FROM pharm_app;
+    END IF;
+END $$;

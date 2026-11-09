@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { platformQuery } from "@/lib/db/database";
+import { isCaptchaError, verifyRecaptcha } from "@/lib/recaptcha";
 import { sendPasswordResetEmail } from "@/lib/saas/account-email";
-import { clientAddress, hit, RateLimitError } from "@/lib/saas/rate-limit";
+import { clientAddress } from "@/lib/saas/rate-limit";
 
-const schema = z.object({ email: z.string().trim().toLowerCase().email().max(160) });
+const schema = z.object({ email: z.string().trim().toLowerCase().email().max(160), recaptchaToken: z.string().max(4000).optional() });
 const ANSWER = { ok: true, message: "If an account uses that email, a reset link is on its way. It expires in 60 minutes." };
 
 /**
@@ -18,8 +19,7 @@ export async function POST(request: Request) {
   const { email } = parsed.data;
   try {
     const address = await clientAddress();
-    hit(`forgot:ip:${address}`, 20, 60 * 60_000);
-    hit(`forgot:email:${email}`, 5, 60 * 60_000);
+    await verifyRecaptcha(parsed.data.recaptchaToken, "forgot_password", address);
     const [account] = await platformQuery<Array<{ id: string; name: string; email: string }>>((query) =>
       query(
         `SELECT u.id, u.name, u.email FROM users u
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     if (account) await sendPasswordResetEmail(account);
     return NextResponse.json(ANSWER);
   } catch (error) {
-    if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429 });
+    if (isCaptchaError(error)) return NextResponse.json({ error: error.message }, { status: 400 });
     console.error("[forgot-password]", error);
     return NextResponse.json(ANSWER);
   }

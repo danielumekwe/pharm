@@ -289,7 +289,7 @@ describe("Sign-in rate limiting", () => {
   test("after 10 failed attempts an account name is locked for a while, even with the right password", async () => {
     const client = new Client(server.baseUrl);
     for (let attempt = 0; attempt < 10; attempt += 1) assert.ok(await client.login("staff.vi@web365.ng", "outlet-3", "Wrong#Pass1"));
-    assert.match(await client.login("staff.vi@web365.ng", "outlet-3", "Admin@123"), /Too many attempts/);
+    assert.match(await client.login("staff.vi@web365.ng", "outlet-3", "Admin@123"), /Too many requests/);
     const listed = await fetch(`${server.baseUrl}/api/auth/pharmacies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "staff.vi@web365.ng", password: "Admin@123" }) });
     assert.equal(listed.status, 429);
     await signedIn(server.baseUrl, "sales.vi@web365.ng", "outlet-3"); // other accounts are unaffected

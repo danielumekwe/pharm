@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { recordSignInAttempt } from "@/lib/platform/security";
+import { isCaptchaError, verifyRecaptcha } from "@/lib/recaptcha";
 import { maintenanceMessage } from "@/lib/platform/system";
 import { pharmaciesFor, suspendedMessage, suspendedPharmaciesFor, verifiedAccountIds } from "@/lib/saas/identity";
-import { limitSignIn, RateLimitError, recordSignInFailure } from "@/lib/saas/rate-limit";
+import { clientAddress, limitSignIn, RateLimitError, rateLimitErrorResponse } from "@/lib/saas/rate-limit";
 
-const schema = z.object({ identifier: z.string().trim().min(3).max(120), password: z.string().min(6).max(128) });
+const schema = z.object({ identifier: z.string().trim().min(3).max(120), password: z.string().min(6).max(128), recaptchaToken: z.string().max(4000).optional() });
 
 /**
  * Step 1 of sign-in: after the password is checked, lists the pharmacies this account belongs to and the
@@ -20,10 +21,10 @@ export async function POST(request: Request) {
   const paused = await maintenanceMessage();
   if (paused) return NextResponse.json({ error: paused, maintenance: true }, { status: 503 });
   try {
+    await verifyRecaptcha(parsed.data.recaptchaToken, "login", await clientAddress());
     await limitSignIn(identifier);
     const ids = await verifiedAccountIds(identifier, password);
     if (!ids.length) {
-      recordSignInFailure(identifier);
       await recordSignInAttempt({ surface: "pharmacy", identifier, outcome: "bad_password" });
       return NextResponse.json({ error: "Email/staff ID or password is incorrect." }, { status: 401 });
     }
@@ -41,7 +42,8 @@ export async function POST(request: Request) {
       pharmacies: usable.map((entry) => ({ tenantId: entry.tenantId, name: entry.name, role: entry.roleLabel, locations: entry.locations, defaultLocationId: entry.defaultLocationId })),
     });
   } catch (error) {
-    if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429 });
+    if (isCaptchaError(error)) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof RateLimitError) return rateLimitErrorResponse(error);
     console.error("[sign-in pharmacies]", error);
     return NextResponse.json({ error: "Sign-in is unavailable right now." }, { status: 503 });
   }

@@ -24,9 +24,8 @@ const FIELDS: { key: NumberKey; label: string; hint: string; suffix: string; sec
   { key: "inviteValidityHours", label: "Invitation link validity", hint: "How long a staff invitation can be used.", suffix: "hours", section: "Security" },
 ];
 
-type DatabaseStats = { database: string; counts: Record<string, number>; lastFlush: { at: string; changed: number; ms: number } | null };
 
-export function SettingsForm({ settings, defaults, history, database }: { settings: SystemSettings; defaults: SystemSettings; history: { id: string; at: string; actor: string; summary: string }[]; database: DatabaseStats | null }) {
+export function SettingsForm({ settings, defaults, history }: { settings: SystemSettings; defaults: SystemSettings; history: { id: string; at: string; actor: string; summary: string }[] }) {
   const { run, error, busy } = useAction();
   const toForm = (value: SystemSettings) => Object.fromEntries(Object.entries(value).map(([key, item]) => [key, Array.isArray(item) ? item.join(", ") : String(item)])) as Record<keyof SystemSettings, string>;
   const [form, setForm] = useState(() => toForm(settings));
@@ -82,24 +81,6 @@ export function SettingsForm({ settings, defaults, history, database }: { settin
           <Save className="h-4 w-4" /> Save settings
         </ActionButton>
       </div>
-      <Panel title="Database" description="PostgreSQL system of record. Mutations commit within a database transaction before the response is returned.">
-        {database ? (
-          <div className="space-y-3 text-sm">
-            <p className="font-mono text-xs text-slate-400">{database.database}</p>
-            <p className="text-slate-300">Last save: {database.lastFlush ? `${dateTime(database.lastFlush.at)} · ${database.lastFlush.changed} row(s) in ${database.lastFlush.ms} ms` : "no changes since start"}</p>
-            <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
-              {Object.entries(database.counts).map(([table, count]) => (
-                <div key={table} className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
-                  <p className="truncate text-[11px] text-slate-500">{table.replace(/_/g, " ")}</p>
-                  <p className="font-semibold tabular-nums text-white">{count.toLocaleString()}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-amber-300">Database not initialised in this process.</p>
-        )}
-      </Panel>
       <Panel title="Recent changes">
         {history.length ? (
           <ul className="space-y-2 text-sm">{history.map((event) => <li key={event.id} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"><p>{event.summary}</p><p className="text-[11px] text-slate-500">{dateTime(event.at)} · {event.actor}</p></li>)}</ul>

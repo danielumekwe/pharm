@@ -1,6 +1,7 @@
 import { billingProvider } from "@/lib/billing/paystack";
 import { DomainError } from "@/lib/erp/services";
 import { testEmailConnection } from "@/lib/notify/email";
+import { testConnection as testWhatsAppConnection } from "@/lib/notify/whatsapp/service";
 import { platformActorRef, recordPlatformAudit } from "@/lib/platform/audit";
 import { platformCan, platformGuarded } from "@/lib/platform/session";
 import { lastChecks, recordIntegrationCheck, SETTINGS } from "@/lib/platform/settings";
@@ -12,6 +13,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ ke
     const tests = {
       "payments.paystack": { integration: "paystack", label: "Paystack", run: () => billingProvider().testConnection() },
       "email.delivery": { integration: "email", label: "Email", run: () => testEmailConnection() },
+      // Read-only call to Zoho CPaaS (message logs): checks the key and agent without sending anything.
+      "whatsapp.zoho": { integration: "whatsapp", label: "WhatsApp (Zoho CPaaS)", run: () => testWhatsAppConnection() },
     } as const;
     if (!(key in tests)) throw new DomainError("This integration has no connection test.", 404);
     const test = tests[key as keyof typeof tests];

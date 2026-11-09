@@ -68,4 +68,8 @@ export async function notifyPharmacyOwners(tenantId: string, template: TemplateK
   for (const owner of await pharmacyOwners(tenantId)) {
     await send(owner.email, template, { name: owner.name, pharmacy: owner.pharmacy, ...values }, { category, tenantId });
   }
+  // The WhatsApp version (payments, suspension, reactivation, announcements) is queued for the pharmacy's
+  // authorised recipients; it is sent by the background queue, never here.
+  const { queueForOwnerEmail } = await import("@/lib/notify/whatsapp/service");
+  await queueForOwnerEmail(tenantId, template, values).catch(() => null);
 }

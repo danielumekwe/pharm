@@ -8,6 +8,7 @@ import { Building2, Check, ChevronDown, Eye, EyeOff, Loader2, LockKeyhole, LogIn
 
 import { BrandWordmark } from "@/components/branding";
 import { PharmacyIllustration } from "@/components/pharmacy-illustration";
+import { preloadRecaptcha, recaptchaToken } from "@/lib/recaptcha-client";
 
 const HEAD_OFFICE = "HQ";
 const REMEMBER_KEY = "pharmerp.remembered-login";
@@ -78,6 +79,8 @@ function LoginFormFields({ saved }: { saved: Remembered | null }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const identifierRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => preloadRecaptcha(), []);
+
   useEffect(() => {
     if (!menuOpen) return;
     const close = (event: MouseEvent) => {
@@ -98,7 +101,7 @@ function LoginFormFields({ saved }: { saved: Remembered | null }) {
 
   async function signInTo(chosenTenant: string, chosenOutlet: string) {
     setIsSubmitting(true);
-    const result = await signIn("credentials", { identifier, password, tenantId: chosenTenant, outletId: chosenOutlet, redirect: false });
+    const result = await signIn("credentials", { identifier, password, tenantId: chosenTenant, outletId: chosenOutlet, recaptchaToken: (await recaptchaToken("login")) ?? "", redirect: false });
     setIsSubmitting(false);
     if (result?.error) {
       setError(result.error === "CredentialsSignin" ? (mode === "staff" ? "Staff ID or password is incorrect." : "Email or password is incorrect.") : result.error);
@@ -129,7 +132,7 @@ function LoginFormFields({ saved }: { saved: Remembered | null }) {
 
     // Step 1: check the password and fetch the pharmacies and locations this account may use.
     setIsSubmitting(true);
-    const response = await fetch("/api/auth/pharmacies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, password }) });
+    const response = await fetch("/api/auth/pharmacies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, password, recaptchaToken: await recaptchaToken("login") }) });
     const body = (await response.json().catch(() => ({}))) as { pharmacies?: Pharmacy[]; error?: string };
     setIsSubmitting(false);
     if (!response.ok || !body.pharmacies?.length) {

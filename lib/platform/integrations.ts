@@ -4,6 +4,7 @@ import { platformQuery } from "@/lib/db/database";
 import { paystackConfig } from "@/lib/billing/config";
 import { emailTransport } from "@/lib/notify/email";
 import { pushConfigured } from "@/lib/notify/push";
+import { whatsappConfig } from "@/lib/notify/whatsapp/service";
 import { lastChecks, readPlatformSetting } from "@/lib/platform/settings";
 
 export type Integration = {
@@ -18,9 +19,11 @@ export type Integration = {
 const time = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString().replace("T", " ").slice(0, 16) + " UTC" : null);
 
 export async function integrations(): Promise<Integration[]> {
-  const [paystack, paystackChecks, transport, emailChecks, switches] = await Promise.all([
+  const [paystack, paystackChecks, transport, emailChecks, switches, whatsapp, whatsappChecks] = await Promise.all([
     paystackConfig(), lastChecks("paystack"), emailTransport(), lastChecks("email"), readPlatformSetting("notifications.global").catch(() => null),
+    whatsappConfig().catch(() => null), lastChecks("whatsapp"),
   ]);
+  const [whatsappHook] = await platformQuery<Array<{ last: Date | null }>>((query) => query(`SELECT max(received_at) AS last FROM webhook_events WHERE provider = 'zoho_whatsapp'`));
   const [webhook] = await platformQuery<Array<{ last: Date | null; failed: string }>>((query) =>
     query(`SELECT max(received_at) AS last, count(*) FILTER (WHERE processed_at IS NULL AND received_at > now() - interval '1 day') AS failed FROM webhook_events WHERE provider = 'paystack'`),
   );
@@ -42,6 +45,11 @@ export async function integrations(): Promise<Integration[]> {
       name: "Email", purpose: "Account, billing, alert and support emails", settingsHref: "/platform/settings/email", lastCheck: time(emailChecks.last?.at),
       status: transport.kind === "off" ? (transport.reason.includes("turned off") ? "off" : "not_configured") : transport.kind === "json" ? "configured" : checked(emailChecks),
       detail: transport.kind === "off" ? transport.reason : transport.kind === "json" ? "Test outbox only: nothing leaves the server." : transport.kind === "environment" ? "SMTP from the server environment." : `${transport.value.provider} as ${transport.value.senderEmail}. ${emailChecks.last ? emailChecks.last.detail : "Run Test connection to confirm."}`,
+    },
+    {
+      name: "WhatsApp (Zoho CPaaS)", purpose: "Daily reports, stock and expiry alerts, billing and account notices on WhatsApp", settingsHref: "/platform/settings/whatsapp", lastCheck: time(whatsappChecks.last?.at),
+      status: !whatsapp?.apiKey ? "not_configured" : !whatsapp.value.enabled ? "off" : checked(whatsappChecks),
+      detail: !whatsapp?.apiKey ? "No agent API key saved." : `${whatsapp.value.enabled ? "On" : "Switched off"}; sender ${whatsapp.value.senderNumber || "not set"}. ${whatsappChecks.last ? whatsappChecks.last.detail : "Run Test connection to confirm."} ${whatsappHook?.last ? `Last delivery report ${time(whatsappHook.last)}.` : "No delivery report received yet (set the webhook in Zoho CPaaS)."}`,
     },
     {
       name: "Push notifications (Firebase)", purpose: "Alerts on the Android app", settingsHref: "/platform/settings/general", lastCheck: null,

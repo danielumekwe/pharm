@@ -226,14 +226,3 @@ describe("Password recovery", () => {
     assert.equal((await relief.get("/api/dashboard")).status, 401);
   });
 });
-
-describe("Abuse limits", () => {
-  test("registrations are limited per address", async () => {
-    let limited = false;
-    for (let attempt = 0; attempt < 6 && !limited; attempt += 1) {
-      const { status } = await register(registration({ ownerEmail: `flood${attempt}@example.ng`, businessName: `Flood ${attempt}` }));
-      limited = status === 429;
-    }
-    assert.ok(limited, "the sixth registration within an hour is refused");
-  });
-});

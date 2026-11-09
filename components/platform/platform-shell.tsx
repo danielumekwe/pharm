@@ -23,6 +23,7 @@ const GROUPS: Array<{ label: string; links: Link[] }> = [
   ] },
   { label: "Platform", links: [
     { href: "/platform/settings/email", label: "Email", icon: "email", permission: "settings.manage" },
+    { href: "/platform/settings/whatsapp", label: "WhatsApp", icon: "whatsapp", permission: "settings.manage" },
     { href: "/platform/settings/system", label: "System", icon: "system", permission: "settings.manage" },
     { href: "/platform/settings/general", label: "Branding", icon: "branding", permission: "settings.manage" },
     { href: "/platform/integrations", label: "Integrations", icon: "integrations", permission: "settings.manage" },
@@ -30,6 +31,7 @@ const GROUPS: Array<{ label: string; links: Link[] }> = [
   { label: "Security", links: [
     { href: "/platform/audit", label: "Audit log", icon: "audit", permission: "audit.view" },
     { href: "/platform/security/log", label: "Security log", icon: "securityLog", permission: "audit.view" },
+    { href: "/platform/security/rate-limits", label: "Rate Limits & API Protection", icon: "rateLimits", permission: "rateLimits.manage" },
     { href: "/platform/settings/security", label: "Security policy", icon: "securityPolicy", permission: "staff.manage" },
     { href: "/platform/staff", label: "Platform staff", icon: "staff", permission: "staff.manage" },
     { href: "/platform/security", label: "My security", icon: "mySecurity", permission: "self" },

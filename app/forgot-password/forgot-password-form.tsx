@@ -1,20 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { buttonClass, Field, inputClass, Notice } from "@/components/auth-card";
+import { preloadRecaptcha, recaptchaToken } from "@/lib/recaptcha-client";
 
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<{ tone: "error" | "success"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => preloadRecaptcha(), []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setMessage(null);
-    const response = await fetch("/api/auth/password/forgot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+    const response = await fetch("/api/auth/password/forgot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, recaptchaToken: await recaptchaToken("forgot_password") }) });
     const body = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
     setBusy(false);
     setMessage(response.ok ? { tone: "success", text: body.message ?? "Check your email." } : { tone: "error", text: body.error ?? "Please try again." });
