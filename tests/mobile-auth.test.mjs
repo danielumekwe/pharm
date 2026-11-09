@@ -33,6 +33,27 @@ describe("Mobile login", () => {
     assert.ok(data.user.permissions.includes("sales.create"));
   });
 
+  test("without an outlet, signs in at the account's own location and lists where it may work", async () => {
+    const cashier = await call("POST", "/api/mobile/login", { body: { identifier: "cashier@web365.ng", password: "Admin@123" } });
+    assert.equal(cashier.status, 200, JSON.stringify(cashier.data));
+    assert.equal(cashier.data.user.outletId, "outlet-1");
+    assert.ok(cashier.data.pharmacy.locations.some((location) => location.id === "outlet-1"));
+    const admin = await call("POST", "/api/mobile/login", { body: { identifier: "admin@web365.ng", password: "Admin@123" } });
+    assert.equal(admin.status, 200);
+    assert.ok(admin.data.pharmacy.locations.length > 1, "a central role may choose Head Office or an outlet");
+  });
+
+  test("the daily report is available to the app for managers, not cashiers", async () => {
+    const admin = await call("POST", "/api/mobile/login", { body: { identifier: "admin@web365.ng", password: "Admin@123" } });
+    const report = await call("GET", "/api/reports/daily", { token: admin.data.token });
+    assert.equal(report.status, 200, JSON.stringify(report.data));
+    assert.equal(typeof report.data.totalSales, "number");
+    assert.equal(report.data.financial, true);
+    assert.match(report.data.day, /^\d{4}-\d{2}-\d{2}$/);
+    const cashier = await call("POST", "/api/mobile/login", { body: { identifier: "cashier@web365.ng", password: "Admin@123" } });
+    assert.equal((await call("GET", "/api/reports/daily", { token: cashier.data.token })).status, 403);
+  });
+
   test("rejects a wrong password and a disallowed outlet", async () => {
     assert.equal((await login("cashier@web365.ng", "outlet-1", "wrong-password")).status, 401);
     const hq = await login("cashier@web365.ng", "HQ");

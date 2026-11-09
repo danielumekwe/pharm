@@ -247,7 +247,7 @@ function adminDashboard(actor: Actor, filters: AdminFilters) {
     totals: overview.totals,
     byOutlet: overview.byOutlet.map((row) => ({ name: row.name, value: row.net, gross: row.gross, discounts: row.discounts, returns: row.returns, transactions: row.transactions })),
     byCashier: overview.byCashier.slice(0, 10).map((row) => ({ name: row.cashier, value: row.net, transactions: row.transactions, note: row.outlets })),
-    trend: overview.trend.map((row) => ({ label: row.label, value: row.net })),
+    trend: overview.trend.map((row) => ({ label: row.label, value: row.net, period: row.period })),
     topProducts: topProducts(inRange, 8),
     paymentMix: paymentMix(inRange),
     position: stockPosition(actor, outlet),

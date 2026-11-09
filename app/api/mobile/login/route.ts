@@ -51,6 +51,8 @@ export async function POST(request: Request) {
           outlets: actor.outletIds.map((id) => ({ id, name: getOutletById(id)?.name ?? id })),
           permissions: actor.permissions,
         },
+        // Where this account may sign in at this pharmacy (for the app's location switcher).
+        pharmacy: await pharmacyFor(body, signedIn.tenantId),
       });
     }));
   } catch (error) {
@@ -58,4 +60,12 @@ export async function POST(request: Request) {
     console.error("[mobile-login]", error);
     return NextResponse.json({ error: "Database unavailable." }, { status: 503 });
   }
+}
+
+/** The signed-in pharmacy's name and the locations this account may use there (password already verified). */
+async function pharmacyFor(body: unknown, tenantId: string) {
+  const { identifier, password } = (body ?? {}) as { identifier?: unknown; password?: unknown };
+  if (typeof identifier !== "string" || typeof password !== "string") return null;
+  const entry = (await pharmaciesFor(await verifiedAccountIds(identifier, password))).find((row) => row.tenantId === tenantId);
+  return entry ? { tenantId, name: entry.name, role: entry.roleLabel, locations: entry.locations, defaultLocationId: entry.defaultLocationId } : null;
 }

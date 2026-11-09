@@ -27,7 +27,8 @@ const credentialsSchema = z.object({
   password: z.string().min(6),
   /** The pharmacy chosen on the sign-in form. Only accepted if the account holds a membership of it. */
   tenantId: z.string().max(80).optional(),
-  outletId: z.string().max(40).optional().default(HEAD_OFFICE),
+  /** The web form always sends it; the mobile app may leave it out to use the account's default location. */
+  outletId: z.string().max(40).optional(),
 });
 
 export type SignedInUser = { id: string; name: string; email: string; role: string; outletId: string | null; tenantId: string };
@@ -72,7 +73,8 @@ export async function authorizeCredentials(credentials: unknown): Promise<Signed
     throw new Error(tenantId ? "This account does not have access to that pharmacy." : "Choose the pharmacy you are signing in to.");
   }
 
-  const user = await runInTenant(choice.tenantId, () => withDatabaseTransaction(() => signInWithinTenant(choice.userId, identifier, outletId)));
+  const location = outletId ?? choice.defaultLocationId ?? HEAD_OFFICE;
+  const user = await runInTenant(choice.tenantId, () => withDatabaseTransaction(() => signInWithinTenant(choice.userId, identifier, location)));
   if (user) await recordSignInAttempt({ surface: "pharmacy", identifier, outcome: "success", userId: user.id, tenantId: choice.tenantId });
   return user ? { ...user, tenantId: choice.tenantId } : null;
 }

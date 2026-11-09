@@ -4,39 +4,48 @@
     "slug": "pharmaerp",
     "version": "2.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
+    "icon": "./assets/images/pharmaerp-icon.png",
+    "scheme": "pharmaerp",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "com.pharmaerp.app"
+      "bundleIdentifier": "com.pharmaerp.app",
+      "supportsTablet": true
     },
     "android": {
       "package": "com.pharmaerp.app",
-      "versionCode": 2,
+      "versionCode": 20,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/images/pharmaerp-icon.png"
       },
-      "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.INTERNET"
-      ]
+      "softwareKeyboardLayoutMode": "resize",
+      "predictiveBackGestureEnabled": false
     },
     "plugins": [
+      "expo-router",
       [
-        "expo-camera",
+        "expo-splash-screen",
         {
-          "cameraPermission": "PharmaERP needs camera access to scan product barcodes."
+          "backgroundColor": "#0A4D29",
+          "image": "./assets/images/pharmaerp-icon.png",
+          "imageWidth": 120
         }
       ],
       "expo-secure-store",
-      "expo-splash-screen"
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "PharmaERP uses the camera to scan product barcodes.",
+          "recordAudioAndroid": false
+        }
+      ]
     ],
-    "extra": {}
+    "extra": {
+      "apiUrl": "https://www.pharmerp.name.ng"
+    },
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
   }
 }
