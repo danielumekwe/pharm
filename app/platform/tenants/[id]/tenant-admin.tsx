@@ -1,9 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Field, inputClass, Notice } from "@/components/auth-card";
+
+import { button, Empty, StatusBadge, table } from "./ui";
 
 type Message = { tone: "success" | "error"; text: string } | null;
 
@@ -21,7 +23,17 @@ export function ProfileEditor({ tenantId, profile, countries, currencies, states
   const [value, setValue] = useState(profile);
   const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState<Message>(null);
+  const form = useRef<HTMLFormElement>(null);
   const set = (patch: Partial<Profile>) => setValue({ ...value, ...patch });
+  // The header's "Edit details" button opens this form.
+  useEffect(() => {
+    const open = () => setEditing(true);
+    window.addEventListener("tenant-edit", open);
+    return () => window.removeEventListener("tenant-edit", open);
+  }, []);
+  useEffect(() => {
+    if (editing) form.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [editing]);
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setMessage(null);
@@ -38,12 +50,12 @@ export function ProfileEditor({ tenantId, profile, countries, currencies, states
     return (
       <div>
         {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
-        <button type="button" onClick={() => setEditing(true)} className="mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Edit details</button>
+        <button type="button" onClick={() => setEditing(true)} className={`${button.secondary} mt-4`}>Edit details</button>
       </div>
     );
   }
   return (
-    <form onSubmit={save} className="mt-3 grid gap-3 sm:grid-cols-2" data-profile-editor>
+    <form ref={form} onSubmit={save} className="mt-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-4 sm:grid-cols-2" data-profile-editor>
       <Field label="Pharmacy name"><input className={inputClass} value={value.businessName} onChange={(event) => set({ businessName: event.target.value })} /></Field>
       <Field label="Business email"><input type="email" className={inputClass} value={value.businessEmail} onChange={(event) => set({ businessEmail: event.target.value })} /></Field>
       <Field label="Phone"><input className={inputClass} value={value.businessPhone} onChange={(event) => set({ businessPhone: event.target.value })} /></Field>
@@ -57,8 +69,8 @@ export function ProfileEditor({ tenantId, profile, countries, currencies, states
       <Field label="Time zone"><input className={inputClass} value={value.timeZone} onChange={(event) => set({ timeZone: event.target.value })} /></Field>
       {message ? <div className="sm:col-span-2"><Notice tone={message.tone}>{message.text}</Notice></div> : null}
       <div className="flex gap-2 sm:col-span-2">
-        <button type="submit" className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800">Save details</button>
-        <button type="button" onClick={() => { setEditing(false); setValue(profile); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Cancel</button>
+        <button type="submit" className={button.primary}>Save details</button>
+        <button type="button" onClick={() => { setEditing(false); setValue(profile); }} className={button.secondary}>Cancel</button>
       </div>
     </form>
   );
@@ -86,21 +98,24 @@ export function ClosureRequests({ tenantId, requests, canDecide, retentionDays }
   }
   const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "—");
   return (
-    <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5" data-closure-requests>
-      <h2 className="font-semibold">Account closure requests</h2>
-      {requests.length === 0 ? <p className="mt-2 text-sm text-slate-500">None.</p> : (
-        <ul className="mt-2 divide-y divide-slate-100 text-sm">
+    <div data-closure-requests>
+      {requests.length === 0 ? <Empty>No closure has been requested.</Empty> : (
+        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
           {requests.map((request) => (
-            <li key={request.id} className="py-2" data-closure={request.status}>
-              <p><strong>{request.requestedBy}</strong> asked on {day(request.requestedAt)}: {request.reason}</p>
-              <p className="text-slate-600">
+            <li key={request.id} className="px-4 py-3" data-closure={request.status}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p><span className="font-medium text-slate-900">{request.requestedBy}</span> <span className="text-slate-500">asked on {day(request.requestedAt)}</span></p>
+                <StatusBadge status={request.status} />
+              </div>
+              <p className="mt-1 text-slate-800">{request.reason}</p>
+              <p className="mt-1 text-slate-500">
                 {request.status === "REQUESTED" ? "Waiting for a decision." : `${request.status.toLowerCase()}${request.decidedBy ? ` by ${request.decidedBy}` : ""} on ${day(request.decidedAt)}${request.note ? ` — ${request.note}` : ""}${request.purgeAfter ? `. Data kept until ${day(request.purgeAfter)}.` : ""}`}
               </p>
               {request.status === "REQUESTED" && canDecide ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <input className={inputClass} placeholder="Note (required to decline; sent to the owner)" value={note} onChange={(event) => setNote(event.target.value)} />
-                  <button type="button" disabled={busy} onClick={() => void decide(request.id, "approve")} className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">Close the pharmacy</button>
-                  <button type="button" disabled={busy} onClick={() => void decide(request.id, "reject")} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold disabled:opacity-60">Decline</button>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <input className={`${inputClass} h-10`} placeholder="Note (required to decline; sent to the owner)" value={note} onChange={(event) => setNote(event.target.value)} />
+                  <button type="button" disabled={busy} onClick={() => void decide(request.id, "reject")} className={`${button.secondary} shrink-0`}>Decline</button>
+                  <button type="button" disabled={busy} onClick={() => void decide(request.id, "approve")} className={`${button.danger} shrink-0`}>Close the pharmacy</button>
                 </div>
               ) : null}
             </li>
@@ -108,8 +123,8 @@ export function ClosureRequests({ tenantId, requests, canDecide, retentionDays }
         </ul>
       )}
       {message ? <div className="mt-2"><Notice tone={message.tone}>{message.text}</Notice></div> : null}
-      <p className="mt-2 text-xs text-slate-500">Closing stops all sign-ins and cancels the subscription. Data is kept for {retentionDays} days (subscription policy); deleting it is a separate step.</p>
-    </section>
+      <p className="mt-3 text-xs text-slate-500">Closing stops all sign-ins and cancels the subscription. Data is kept for {retentionDays} days (subscription policy); deleting it is a separate step.</p>
+    </div>
   );
 }
 
@@ -162,19 +177,20 @@ export function RefundList({ refunds, actorId, canDecide, twoPerson }: { refunds
   }
   if (!refunds.length) return null;
   return (
-    <div className="mt-4" data-refunds>
-      <h3 className="text-sm font-semibold">Refunds</h3>
-      <table className="mt-1 w-full text-sm">
-        <thead className="text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="py-1">Requested</th><th>Payment</th><th>Amount</th><th>Reason</th><th>Status</th><th /></tr></thead>
-        <tbody className="divide-y divide-slate-100">
+    <div className="border-t border-slate-100 px-5 py-4" data-refunds>
+      <h3 className="text-sm font-semibold text-slate-900">Refunds</h3>
+      <div className={`${table.wrap} mt-2 rounded-lg border border-slate-200`}>
+      <table className={table.table}>
+        <thead className={table.head}><tr><th className={table.th}>Requested</th><th className={table.th}>Payment</th><th className={table.th}>Amount</th><th className={table.th}>Reason</th><th className={table.th}>Status</th><th className={table.th} /></tr></thead>
+        <tbody className={table.body}>
           {refunds.map((refund) => (
             <tr key={refund.id} data-refund={refund.status} className="align-top">
-              <td className="py-1.5">{refund.requestedAt.slice(0, 10)}<span className="block text-xs text-slate-500">{refund.requestedBy}</span></td>
-              <td className="font-mono text-xs">{refund.reference}</td>
-              <td>{money(refund.currency, refund.amount)}</td>
-              <td>{refund.reason}{refund.note ? <span className="block text-xs text-slate-500">{refund.decidedBy}: {refund.note}</span> : null}</td>
-              <td>{refund.status.toLowerCase()}{refund.error ? <span className="block text-xs text-rose-700">{refund.error}</span> : null}</td>
-              <td className="space-x-1 whitespace-nowrap">
+              <td className={table.td}>{refund.requestedAt.slice(0, 10)}<span className="block text-xs text-slate-500">{refund.requestedBy}</span></td>
+              <td className={`${table.td} font-mono text-xs`}>{refund.reference}</td>
+              <td className={table.td}>{money(refund.currency, refund.amount)}</td>
+              <td className={table.td}>{refund.reason}{refund.note ? <span className="block text-xs text-slate-500">{refund.decidedBy}: {refund.note}</span> : null}</td>
+              <td className={table.td}><StatusBadge status={refund.status} />{refund.error ? <span className="mt-1 block text-xs text-rose-700">{refund.error}</span> : null}</td>
+              <td className={`${table.td} space-x-1 whitespace-nowrap`}>
                 {refund.status === "REQUESTED" && canDecide ? (
                   twoPerson && refund.requestedById === actorId ? <span className="text-xs text-slate-500">needs another approver</span> : (
                     <>
@@ -189,6 +205,7 @@ export function RefundList({ refunds, actorId, canDecide, twoPerson }: { refunds
           ))}
         </tbody>
       </table>
+      </div>
       {canDecide && refunds.some((refund) => refund.status === "REQUESTED") ? <input className={`${inputClass} mt-2`} placeholder="Note for your decision (required to reject)" value={note} onChange={(event) => setNote(event.target.value)} /> : null}
       {message ? <div className="mt-2"><Notice tone={message.tone}>{message.text}</Notice></div> : null}
     </div>

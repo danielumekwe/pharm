@@ -200,3 +200,11 @@ export async function latestClosure(tenantId: string) {
   const [row] = await platformQuery<ClosureRow[]>((query) => query(`SELECT * FROM tenant_deletion_requests WHERE tenant_id = $1 ORDER BY requested_at DESC LIMIT 1`, [tenantId]));
   return row ? closureView(row) : null;
 }
+
+/** Read-only: this pharmacy's recent staff sign-in attempts (successful and failed), newest first. */
+export async function tenantSignIns(tenantId: string, limit = 50) {
+  const rows = await platformQuery<Array<{ at: Date; identifier: string; outcome: string; ip: string | null; detail: string | null }>>((query) =>
+    query(`SELECT at, identifier, outcome, ip, detail FROM sign_in_attempts WHERE tenant_id = $1 AND surface = 'pharmacy' ORDER BY at DESC LIMIT $2`, [tenantId, limit]),
+  );
+  return rows.map((row) => ({ at: new Date(row.at).toISOString(), identifier: row.identifier, outcome: row.outcome, ip: row.ip, detail: row.detail }));
+}
