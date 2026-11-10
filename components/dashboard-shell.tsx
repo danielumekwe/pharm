@@ -520,7 +520,7 @@ function Shell({ children }: { children: ReactNode }) {
   }, [pathname, status]);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="theme-green min-h-screen bg-slate-100 text-slate-900">
       <SupportBanner />
       <ImpersonationBanner />
       <div className="flex">

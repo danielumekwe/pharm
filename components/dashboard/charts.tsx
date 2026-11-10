@@ -14,22 +14,22 @@ export function TrendChart({ data, label = "Net sales", height = 260 }: { data: 
         <AreaChart data={data} margin={{ left: 0, right: 8, top: 8 }}>
           <defs>
             <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="5%" stopColor="#2563eb" stopOpacity={0.28} />
-              <stop offset="95%" stopColor="#2563eb" stopOpacity={0.02} />
+              <stop offset="5%" stopColor="#16803a" stopOpacity={0.28} />
+              <stop offset="95%" stopColor="#16803a" stopOpacity={0.02} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e9f0" vertical={false} />
           <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} minTickGap={16} />
           <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} tickFormatter={compact} width={56} />
           <Tooltip formatter={(value) => [naira(value), label]} contentStyle={{ borderRadius: 12, borderColor: "#e5e9f0", fontSize: 12 }} />
-          <Area type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2.5} fill="url(#trendFill)" />
+          <Area type="monotone" dataKey="value" stroke="#16803a" strokeWidth={2.5} fill="url(#trendFill)" />
         </AreaChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-const COLORS = ["#2563eb", "#0ea5e9", "#14b8a6", "#f59e0b", "#8b5cf6", "#64748b"];
+const COLORS = ["#16803a", "#0ea5e9", "#84cc16", "#f59e0b", "#8b5cf6", "#64748b"];
 
 /** Share of a total, e.g. payment methods. */
 export function DonutChart({ data }: { data: { name: string; value: number }[] }) {

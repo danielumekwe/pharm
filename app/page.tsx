@@ -7,6 +7,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { ArrowRight, Check, CheckCircle2, Circle, Cloud, Lock, Mail, MessageSquare, Phone, Receipt, Smartphone, Store } from "lucide-react";
 
+import { AndroidIcon } from "@/components/android-icon";
 import { DEVELOPER, FEATURES, HERO_PHOTO, STEPS, TRUST_POINTS } from "@/components/landing/content";
 import { LandingLogo } from "@/components/landing/logo";
 import { demoHref, loadOffer, primaryCta, type Offer } from "@/components/landing/offer";
@@ -309,7 +310,7 @@ export default async function HomePage() {
               </ul>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
                 <a href="/downloads/PharmaERP.apk" download className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-ink px-6 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-black" data-android-download>
-                  <Smartphone className="h-5 w-5" aria-hidden="true" /> Download for Android
+                  <AndroidIcon className="h-5 w-5" /> Download for Android
                 </a>
                 <p className="text-sm text-brand-muted">Free with every plan · Android 7 or later</p>
               </div>

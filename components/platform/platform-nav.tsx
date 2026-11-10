@@ -26,15 +26,15 @@ export function PlatformFrame({ groups, user, twoFactor, version, waiting, signO
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const sidebar = (
-    <nav className="flex h-full flex-col bg-gradient-to-b from-[#0b1736] to-[#0f2147] text-slate-200" aria-label="Control Centre">
+    <nav className="flex h-full flex-col bg-gradient-to-b from-[#08361d] to-[#0b4a28] text-emerald-50" aria-label="Control Centre">
       <div className="flex items-center gap-3 px-5 py-5">
-        <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-sky-500 text-lg font-black text-white">P</span>
-        <div><p className="text-base font-bold text-white">PharmaERP</p><p className="text-xs text-slate-400">Web365 Control Centre</p></div>
+        <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-lime-400 to-emerald-600 text-lg font-black text-white">P</span>
+        <div><p className="text-base font-bold text-white">PharmaERP</p><p className="text-xs text-emerald-100/70">Web365 Control Centre</p></div>
       </div>
       <div className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
         {groups.map((group) => (
           <div key={group.label}>
-            <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{group.label}</p>
+            <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200/60">{group.label}</p>
             <ul className="space-y-0.5">
               {group.links.map((link) => {
                 const Icon = ICONS[link.icon];
@@ -42,7 +42,7 @@ export function PlatformFrame({ groups, user, twoFactor, version, waiting, signO
                 return (
                   <li key={link.href}>
                     <Link href={link.href} onClick={() => setOpen(false)} aria-current={active ? "page" : undefined}
-                      className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${active ? "bg-gradient-to-r from-blue-600 to-blue-500 font-semibold text-white shadow-lg shadow-blue-900/40" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}>
+                      className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${active ? "bg-gradient-to-r from-blue-600 to-blue-500 font-semibold text-white shadow-lg shadow-black/25" : "text-emerald-50/85 hover:bg-white/5 hover:text-white"}`}>
                       <Icon className="h-[18px] w-[18px] shrink-0" />
                       <span className="flex-1">{link.label}</span>
                       {link.badge ? <span className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold text-slate-900">{link.badge}</span> : null}
@@ -57,14 +57,14 @@ export function PlatformFrame({ groups, user, twoFactor, version, waiting, signO
       <div className="m-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-center">
         <ShieldCheck className={`mx-auto h-8 w-8 ${twoFactor ? "text-emerald-400" : "text-amber-300"}`} />
         <p className="mt-2 text-sm font-semibold text-white">{twoFactor ? "Signed in with two-factor" : "Protect your account"}</p>
-        <p className="text-xs text-slate-400">{twoFactor ? "Your session is verified." : "Turn on two-factor sign-in."}</p>
+        <p className="text-xs text-emerald-100/70">{twoFactor ? "Your session is verified." : "Turn on two-factor sign-in."}</p>
         <Link href="/platform/security" className="mt-3 inline-block rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500">My security →</Link>
       </div>
-      <p className="px-5 pb-4 text-[11px] text-slate-500">PharmaERP v{version}</p>
+      <p className="px-5 pb-4 text-[11px] text-emerald-200/60">PharmaERP v{version}</p>
     </nav>
   );
   return (
-    <div className="min-h-screen bg-[#f3f6fb] text-slate-900" data-platform-shell>
+    <div className="theme-green min-h-screen bg-[#f3f7f4] text-slate-900" data-platform-shell>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block">{sidebar}</aside>
       {open ? (
         <div className="fixed inset-0 z-40 lg:hidden">

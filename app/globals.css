@@ -100,7 +100,25 @@ body {
 }
 
 /*
- * Pharmacy ERP light theme: white cards on light grey, professional blue for primary actions, green only for success.
+ * Brand green for the signed-in app (pharmacy dashboard and Control Centre). Pages use plain blue-* utilities for
+ * primary actions, links, active states and focus rings; inside `.theme-green` those resolve to the PharmaERP green.
+ */
+.theme-green {
+  --color-blue-50: #effaf3;
+  --color-blue-100: #d7f1df;
+  --color-blue-200: #b0e2c0;
+  --color-blue-300: #7fcb98;
+  --color-blue-400: #45ad69;
+  --color-blue-500: #22924a;
+  --color-blue-600: #16803a;
+  --color-blue-700: #0f6b30;
+  --color-blue-800: #0d5628;
+  --color-blue-900: #0b4522;
+  --color-blue-950: #062814;
+}
+
+/*
+ * Pharmacy ERP light theme: white cards on light grey, brand green for primary actions.
  * Module pages were written with dark slate utilities; inside `.theme-pharm` those palette variables are
  * remapped to light equivalents so every page follows one theme. New code can keep using the same utilities
  * (bg-slate-900 = card surface, text-white = heading, bg-slate-950 = wells/inputs) or plain blue-* for actions.
@@ -151,17 +169,17 @@ body {
   --card-foreground: #0f172a;
   --popover: #ffffff;
   --popover-foreground: #0f172a;
-  --primary: #1d4ed8;
+  --primary: #16803a;
   --primary-foreground: #ffffff;
   --secondary: #eef2f7;
   --secondary-foreground: #1e293b;
   --muted: #f1f5f9;
   --muted-foreground: #5b6b82;
-  --accent: #eff6ff;
-  --accent-foreground: #1e3a8a;
+  --accent: #effaf3;
+  --accent-foreground: #0d5628;
   --border: #e5e9f0;
   --input: #cbd5e1;
-  --ring: rgba(37, 99, 235, 0.4);
+  --ring: rgba(22, 128, 58, 0.4);
 
   color: var(--color-slate-300);
 }
