@@ -3,7 +3,7 @@
 import { Smartphone, X } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
-import { AndroidIcon } from "@/components/android-icon";
+import { AndroidIcon, AppleIcon } from "@/components/android-icon";
 
 export const ANDROID_APK = "/downloads/PharmaERP.apk";
 const KEY = "pharmerp.app-banner-dismissed";
@@ -44,10 +44,13 @@ export function AppDownloadBanner() {
         <h2 className="text-lg font-semibold text-[#fff]">Take PharmaERP with you</h2>
         <p className="mt-0.5 text-sm text-emerald-50/90">Sell with barcode scanning, check stock and expiry alerts, and see today&apos;s sales on your Android phone, with the same account.</p>
       </div>
-      <div className="relative flex shrink-0 items-center gap-2">
+      <div className="relative flex shrink-0 flex-wrap items-center gap-2">
         <a href={ANDROID_APK} download className="inline-flex items-center gap-2 rounded-xl bg-[#fff] px-4 py-2.5 text-sm font-semibold text-[#0a4d29] shadow-sm hover:bg-lime-50">
           <AndroidIcon className="h-5 w-5" /> Download for Android
         </a>
+        <span aria-disabled="true" title="iOS app coming soon" className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl bg-[#fff]/15 px-4 py-2.5 text-sm font-semibold text-[#fff] ring-1 ring-[#fff]/25">
+          <AppleIcon className="h-5 w-5" /> iOS · Coming soon
+        </span>
         <button type="button" onClick={dismiss} aria-label="Hide this message" className="rounded-lg p-2 text-[#fff]/80 hover:bg-[#fff]/10 hover:text-[#fff]">
           <X className="h-5 w-5" aria-hidden="true" />
         </button>

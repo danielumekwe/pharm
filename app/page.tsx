@@ -7,7 +7,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { ArrowRight, Check, CheckCircle2, Circle, Cloud, Lock, Mail, MessageSquare, Phone, Receipt, Smartphone, Store } from "lucide-react";
 
-import { AndroidIcon } from "@/components/android-icon";
+import { AndroidIcon, AppleIcon } from "@/components/android-icon";
 import { DEVELOPER, FEATURES, HERO_PHOTO, STEPS, TRUST_POINTS } from "@/components/landing/content";
 import { LandingLogo } from "@/components/landing/logo";
 import { demoHref, loadOffer, primaryCta, type Offer } from "@/components/landing/offer";
@@ -312,7 +312,10 @@ export default async function HomePage() {
                 <a href="/downloads/PharmaERP.apk" download className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-ink px-6 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-black" data-android-download>
                   <AndroidIcon className="h-5 w-5" /> Download for Android
                 </a>
-                <p className="text-sm text-brand-muted">Free with every plan · Android 7 or later</p>
+                <span aria-disabled="true" title="iOS app coming soon" className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-brand-ink/20 bg-white px-6 py-3.5 text-base font-semibold text-brand-ink/60">
+                  <AppleIcon className="h-5 w-5" /> iOS · Coming soon
+                </span>
+                <p className="text-sm text-brand-muted">Free with every plan · Android 7 or later · iOS coming soon</p>
               </div>
               <p className="mt-4 max-w-xl text-xs leading-relaxed text-brand-muted">
                 Installing: open the downloaded file on your phone. If Android asks, allow installs from your browser for this download. Updates install over the existing app.
