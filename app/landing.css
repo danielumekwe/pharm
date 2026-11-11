@@ -1,0 +1,122 @@
+/*
+  Public marketing homepage (/) styles. Imported by globals.css so Tailwind generates the utilities.
+  Everything is either a uniquely named token (brand-50…950, lp-*) or scoped under .lp, so none of it
+  reaches the ERP screens.
+
+  Brand greens sampled from the PharmaERP logo (public/pharma-erp-logo.png):
+    #0b6a2a  "ERP" wordmark green  -> brand-700 (secondary: headings accents, dark UI)
+    #188030  cross / ring green    -> brand-600 (primary: buttons, links, icons)
+    #3ca842  leaf green            -> brand-400 (accent: highlights, badges, active states)
+*/
+@theme {
+  --color-brand-50: #f1f9f2;
+  --color-brand-100: #dcf2df;
+  --color-brand-200: #bce5c2;
+  --color-brand-300: #8dd197;
+  --color-brand-400: #3ca842;
+  --color-brand-500: #24913a;
+  --color-brand-600: #188030;
+  --color-brand-700: #0b6a2a;
+  --color-brand-800: #0a4f22;
+  --color-brand-900: #082e17;
+  --color-brand-950: #051c0e;
+  --color-lp-ink: #0f1a14;
+  --color-lp-ink-soft: #33413a;
+  --color-lp-muted: #55665c;
+  --color-lp-surface: #f6faf7;
+
+  --shadow-lp-brand: 0 15px 30px -8px rgb(24 128 48 / 0.35);
+  --shadow-lp-soft: 0 20px 40px -15px rgb(8 46 23 / 0.12);
+  --shadow-lp-device: 0 40px 80px -30px rgb(8 46 23 / 0.35), 0 10px 30px -10px rgb(8 46 23 / 0.15);
+
+  --animate-lp-blob: lpBlob 25s infinite alternate ease-in-out;
+  --animate-lp-float: lpFloat 6s infinite ease-in-out;
+  --animate-lp-pulse: lpPulse 2s infinite;
+  --animate-lp-marquee: lpMarquee 45s linear infinite;
+  --animate-lp-rise: lpRise 0.9s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Inline so the font variables (set by next/font on the .lp wrapper) resolve there, not on :root. */
+@theme inline {
+  --font-lp-heading: var(--font-lp-jakarta), "Plus Jakarta Sans", sans-serif;
+  --font-lp-body: var(--font-lp-inter), "Inter", sans-serif;
+}
+
+@keyframes lpBlob {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, -30px) scale(1.08); }
+  100% { transform: translate(-30px, 30px) scale(0.95); }
+}
+@keyframes lpFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+@keyframes lpPulse {
+  0% { box-shadow: 0 0 0 0 rgb(24 128 48 / 0.5); }
+  70% { box-shadow: 0 0 0 8px rgb(24 128 48 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(24 128 48 / 0); }
+}
+@keyframes lpMarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes lpRise {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
+}
+
+@layer components {
+  .lp {
+    font-family: var(--font-lp-inter), "Inter", sans-serif;
+    color: var(--color-lp-ink);
+    background: #fff;
+    overflow-x: clip;
+    -webkit-font-smoothing: antialiased;
+  }
+  .lp :where(h1, h2, h3, h4) {
+    font-family: var(--font-lp-jakarta), "Plus Jakarta Sans", sans-serif;
+    color: var(--color-lp-ink);
+    letter-spacing: -0.02em;
+  }
+  .lp :focus-visible { outline: 2px solid var(--color-brand-600); outline-offset: 3px; }
+
+  .lp .container-x { @apply mx-auto w-full max-w-[1200px] px-4 sm:px-6; }
+  .lp .section-y { @apply py-20 md:py-28; }
+
+  /* Template buttons, re-coloured to the brand */
+  .lp .btn {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-full px-7 py-3.5 text-[0.9375rem] font-semibold transition-all duration-300;
+    font-family: var(--font-lp-jakarta), "Plus Jakarta Sans", sans-serif;
+  }
+  .lp .btn-primary {
+    @apply bg-linear-to-br from-brand-600 to-brand-700 text-white shadow-lp-brand hover:-translate-y-0.5 hover:from-brand-700 hover:to-brand-800;
+  }
+  .lp .btn-secondary {
+    @apply border border-brand-100 bg-white text-lp-ink shadow-sm hover:-translate-y-0.5 hover:border-brand-300 hover:bg-brand-50;
+  }
+  .lp .btn-light { @apply bg-white text-brand-800 shadow-sm hover:-translate-y-0.5 hover:bg-brand-50; }
+  .lp .btn-outline-light { @apply border border-white/40 text-white hover:-translate-y-0.5 hover:bg-white/10; }
+  .lp .btn-sm { @apply px-5 py-2 text-[0.8125rem]; }
+
+  .lp .subtitle-pill {
+    @apply mb-4 inline-block rounded-full bg-brand-50 px-4 py-1.5 text-[0.75rem] font-bold tracking-[0.15em] text-brand-700 uppercase ring-1 ring-brand-100;
+  }
+  .lp .glass {
+    @apply border border-white/60 bg-white/70 backdrop-blur-xl;
+    box-shadow: 0 8px 32px 0 rgb(8 46 23 / 0.05);
+  }
+  .lp .text-gradient { @apply bg-linear-to-br from-brand-500 to-brand-800 bg-clip-text text-transparent; }
+  .lp .blob { @apply pointer-events-none absolute rounded-full opacity-60 blur-[80px] animate-lp-blob; }
+
+  /* Reveal-on-scroll (template's .reveal / .reveal-left / .reveal-right / .reveal-scale) */
+  .lp .reveal { opacity: 0; transform: translateY(32px); transition: opacity 0.8s cubic-bezier(0.4,0,0.2,1), transform 0.8s cubic-bezier(0.4,0,0.2,1); }
+  .lp .reveal[data-dir="left"] { transform: translateX(-40px); }
+  .lp .reveal[data-dir="right"] { transform: translateX(40px); }
+  .lp .reveal[data-dir="scale"] { transform: scale(0.95); }
+  .lp .reveal.is-visible { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .lp *, .lp *::before, .lp *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}

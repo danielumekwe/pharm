@@ -26,7 +26,7 @@ describe("Landing page", () => {
     assert.match(html, /<meta property="og:title"/);
     assert.match(html, /<meta name="twitter:title"/);
     assert.match(html, /<script type="application\/ld\+json">/);
-    assert.match(html, /<h1[^>]*>Run Your Pharmacy\./);
+    assert.match(html, /<h1[^>]*>Run Your Pharmacy Smarter\./);
     assert.match(html, /href="\/login"/);
     assert.match(html, /href="\/register"/);
     for (const id of ["features", "how-it-works", "pricing", "about", "contact"]) {
@@ -34,7 +34,7 @@ describe("Landing page", () => {
       assert.match(html, new RegExp(`href="#${id}"`), `link to ${id}`);
     }
     assert.match(html, /Developed by Web365 Nigeria/);
-    assert.match(html, /Illustrative preview · sample data/, "drawn previews say they are not real data");
+    assert.match(html, /hero-phone-stock-alerts/, "shows real product screenshots");
   });
 
   test("shows the public plans with their configured prices, and follows Control Centre changes", async () => {
