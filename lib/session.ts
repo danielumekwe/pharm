@@ -146,6 +146,8 @@ export async function guarded(permission: Permission | Permission[], handler: Ha
         if (!actor.support && !options.allowLapsed) await assertSubscriptionAccess();
         const result = await handler(actor);
         await flushDatabase();
+        // File downloads (CSV/Excel) are returned as built.
+        if (result instanceof Response) return result;
         return NextResponse.json(result, { status: successStatus });
       } catch (error) {
         if (error instanceof DomainError && error.keepChanges) return errorResponse(error);

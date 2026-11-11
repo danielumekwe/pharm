@@ -63,7 +63,7 @@ export function normaliseNafdac(value: string | undefined) {
 // ---------------------------------------------------------------- barcodes
 
 /** Barcode owner, if any. Barcodes are shared by the same item at every outlet but never by two different items. */
-function barcodeOwner(code: string) {
+export function barcodeOwner(code: string) {
   return products.find((product) => product.barcode === code || product.barcodes?.some((row) => row.code === code));
 }
 
@@ -199,7 +199,7 @@ function priceSnapshot(product: Product) {
 export type BasePricing = { purchasePrice?: number | null; sellingPrice?: number | null; wholesalePrice?: number | null; minSellingPrice?: number | null };
 
 /** Base-unit prices, derived from a package price when only that was entered (e.g. carton cost ÷ 1,000). */
-function resolvePricing(levels: PackagingLevel[], input: BasePricing) {
+export function resolvePricing(levels: PackagingLevel[], input: BasePricing) {
   const derive = (field: "purchasePrice" | "sellingPrice" | "wholesalePrice" | "minSellingPrice") => {
     const direct = input[field];
     if (typeof direct === "number" && direct > 0) return Math.round(direct * 10000) / 10000;
@@ -231,6 +231,8 @@ export type OpeningBatchInput = {
   expiryDate: string;
   receivingDate?: string;
   supplierId?: string;
+  /** Supplier as written in an imported file, when it is not a saved supplier. */
+  supplierName?: string;
   supplierBatchRef?: string;
   regulatoryNumber?: string;
   /** Quantity in the packaging level below (index into the packaging list), or base units when omitted. */
@@ -276,7 +278,11 @@ export type RegistrationInput = {
   openingStock?: OpeningBatchInput[];
 };
 
-export function registerProduct(actor: Actor, input: RegistrationInput) {
+/**
+ * options (bulk import): `reference`/`remarks` label the opening-stock ledger rows; `quiet` skips the
+ * per-product audit event because the import records its own.
+ */
+export function registerProduct(actor: Actor, input: RegistrationInput, options: { reference?: string; remarks?: string; quiet?: boolean } = {}) {
   assertCan(actor, "products.manage");
   assertOutletAccess(actor, input.outletId);
   const outlet = outlets.find((row) => row.id === input.outletId);
@@ -421,7 +427,7 @@ export function registerProduct(actor: Actor, input: RegistrationInput) {
   }
 
   // Opening balances, each its own batch and ledger row.
-  const reference = `OPEN-${String(nextNumber("opening")).padStart(5, "0")}`;
+  const reference = options.reference ?? `OPEN-${String(nextNumber("opening")).padStart(5, "0")}`;
   for (const prepared of preparedOpening) {
     receiveIntoNewBatch(
       actor,
@@ -431,17 +437,17 @@ export function registerProduct(actor: Actor, input: RegistrationInput) {
         manufacturingDate: prepared.row.manufacturingDate || "",
         expiryDate: prepared.row.expiryDate,
         receivingDate: prepared.row.receivingDate || new Date().toISOString().slice(0, 10),
-        supplier: prepared.supplier?.name ?? "Opening stock",
+        supplier: prepared.supplier?.name ?? (prepared.row.supplierName?.trim() || "Opening stock"),
         supplierId: prepared.supplier?.id,
         supplierBatchRef: prepared.row.supplierBatchRef?.trim(),
         regulatoryNumber: prepared.row.regulatoryNumber?.trim().toUpperCase() || (nafdacNumber !== "Pending" ? nafdacNumber : undefined),
         unitCost: prepared.unitCost,
       },
-      { type: "OPENING", baseQuantity: prepared.baseQuantity, reference, remarks: "Opening stock at registration", unit: { name: prepared.level.name, unitsPerPackage: prepared.level.unitsPerPackage } },
+      { type: "OPENING", baseQuantity: prepared.baseQuantity, reference, remarks: options.remarks ?? "Opening stock at registration", unit: { name: prepared.level.name, unitsPerPackage: prepared.level.unitsPerPackage } },
     );
   }
 
-  recordAudit(actor, {
+  if (!options.quiet) recordAudit(actor, {
     action: "products.create",
     entity: "Product",
     entityId: product.id,

@@ -1,5 +1,6 @@
 "use client";
 
+import { ConnectionIndicator } from "@/components/pwa/connection-indicator";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
@@ -553,6 +554,7 @@ function Shell({ children }: { children: ReactNode }) {
             <GlobalSearch items={flat} canSearchProducts={can("/products")} canSearchStockLevels={can("/stock-levels")} canSearchSales={can("/sales")} />
             <div className="ml-auto flex items-center gap-1.5 md:gap-2">
               <div className="hidden items-center gap-1.5 sm:flex"><PharmacySwitcher /><OutletSwitcher /></div>
+              <ConnectionIndicator />
               <NotificationBell />
               {can("/settings") ? (
                 <Link href="/settings" className="hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:block" aria-label="System settings"><Settings className="h-5 w-5" /></Link>

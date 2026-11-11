@@ -13,7 +13,7 @@ const TENANT_TABLES = [
   "stock_ledger", "price_history", "held_sales", "stock_transfers", "customers", "suppliers", "sales", "sale_lines",
   "purchase_orders", "purchase_order_lines", "payments", "expenses", "audit_events", "product_registrations",
   "regulatory_documents", "regulatory_files", "inventory_alerts", "notifications", "notification_deliveries",
-  "sale_returns", "sale_return_lines", "impersonation_sessions", "app_state",
+  "sale_returns", "sale_return_lines", "impersonation_sessions", "app_state", "inventory_imports",
 ];
 const SECRET = "Tenant B Secret Paracetamol";
 const B_OWNER = "owner@pharmacy-b.ng";

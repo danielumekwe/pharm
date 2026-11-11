@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { Providers } from "@/components/providers";
@@ -21,8 +21,12 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: { default: name, template: `%s · ${name}` },
     description: "Pharmacy management and ERP platform for multi-outlet operations.",
+    applicationName: "PharmaERP",
+    appleWebApp: { capable: true, title: "PharmaERP", statusBarStyle: "default" },
   };
 }
+
+export const viewport: Viewport = { themeColor: "#188030" };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const [branding, session] = await Promise.all([readBranding(), auth().catch(() => null)]);

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#188030" />
+    <title>PharmaERP · offline</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f6faf7; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #0f1a14; }
+      main { width: min(92vw, 400px); background: #fff; border: 1px solid #dcf2df; border-radius: 22px; padding: 32px 26px; text-align: center; box-shadow: 0 20px 50px -25px rgba(8, 46, 23, .35); }
+      img { width: 180px; height: auto; }
+      h1 { font-size: 21px; margin: 18px 0 8px; }
+      p { color: #55665c; font-size: 15px; line-height: 1.55; margin: 0 0 20px; }
+      button { width: 100%; border: 0; border-radius: 999px; background: #188030; color: #fff; font-size: 16px; font-weight: 700; padding: 14px; cursor: pointer; }
+      button:hover { background: #0b6a2a; }
+      .status { display: inline-flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 13px; color: #55665c; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #d97706; }
+      .online .dot { background: #188030; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/pharma-erp-logo.png" alt="PharmaERP" />
+      <h1>You're offline</h1>
+      <p>This screen needs an internet connection. PharmaERP will reopen it automatically as soon as the connection is back.</p>
+      <button type="button" id="retry">Try again now</button>
+      <div class="status" id="status" role="status"><span class="dot"></span><span id="label">Waiting for the connection…</span></div>
+    </main>
+    <script>
+      // Reload only when the PharmaERP server really answers (Wi-Fi without internet does not count).
+      var checking = false;
+      function check() {
+        if (checking) return;
+        checking = true;
+        fetch("/api/health", { cache: "no-store" })
+          .then(function (response) {
+            if (!response.ok) throw new Error();
+            document.getElementById("status").className = "status online";
+            document.getElementById("label").textContent = "Connected. Reopening…";
+            location.reload();
+          })
+          .catch(function () {})
+          .finally(function () { checking = false; });
+      }
+      document.getElementById("retry").addEventListener("click", check);
+      window.addEventListener("online", check);
+      document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
+      setInterval(check, 15000);
+    </script>
+  </body>
+</html>

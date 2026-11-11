@@ -7,6 +7,7 @@ import {
   CalendarClock,
   ClipboardCheck,
   Eye,
+  FileUp,
   LayoutDashboard,
   LineChart,
   PackageCheck,
@@ -20,7 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type Feature = { icon: LucideIcon; title: string; text: string; note?: string };
+export type Feature = { icon: LucideIcon; title: string; text: string; note?: string; points?: string[]; wide?: boolean };
 
 export const features: Feature[] = [
   {
@@ -84,6 +85,21 @@ export const features: Feature[] = [
     title: "Pharmacy settings",
     text: "Your pharmacy's name and logo, VAT rate, near-expiry windows and payment approval limits, all in one place.",
   },
+  {
+    icon: FileUp,
+    title: "Bulk import from Excel, CSV or your old POS",
+    text: "Bring your product list and opening stock across in one go. PharmaERP recognises the columns other systems use, shows a full preview before anything is saved, and can roll an import back if it was a mistake.",
+    note: "Switching from another system?",
+    points: [
+      "Excel (.xlsx) and CSV, with ready-made templates",
+      "Columns from other POS exports matched automatically",
+      "Possible duplicates shown side by side before import",
+      "Each batch kept with its own expiry date",
+      "Cartons, packs and strips converted per product",
+      "Rejected rows downloadable to fix and re-upload",
+    ],
+    wide: true,
+  },
 ];
 
 /** Real module names from the app's navigation, shown in the scrolling strip under the hero. */
@@ -93,6 +109,7 @@ export const modules = [
   "Products",
   "Suppliers",
   "Stock Receiving",
+  "Bulk Import",
   "Supply Requests",
   "Stock Transfers",
   "Stock Alerts",
@@ -149,7 +166,7 @@ export const steps = [
   },
   {
     title: "Add products, stock and staff",
-    text: "Register products with batches, expiry dates and opening stock, add suppliers, then invite your team with the right permissions.",
+    text: "Register products with batches, expiry dates and opening stock, or import them from Excel, CSV or your old POS. Add suppliers, then invite your team with the right permissions.",
   },
   {
     title: "Start selling and monitoring",
@@ -169,6 +186,10 @@ export const faqs: Array<{ q: string; a: string }> = [
   {
     q: "How do I get started?",
     a: "Create your pharmacy account and choose a plan. A setup checklist then walks you through adding outlets, your business details, products with their batches and opening stock, suppliers and staff.",
+  },
+  {
+    q: "Can I move my products and stock from my old system?",
+    a: "Yes. Export your items from your old POS or a spreadsheet and upload the Excel or CSV file under Inventory → Bulk Import. PharmaERP matches the columns, shows a preview with any problems or possible duplicates, and only saves after you confirm. Each batch keeps its own expiry date, and an import can be rolled back while none of its stock has been used.",
   },
   {
     q: "Can I manage more than one outlet?",

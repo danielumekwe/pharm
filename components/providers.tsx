@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 
 import { BrandingProvider } from "@/components/branding";
 import { NativeBridge } from "@/components/native-bridge";
+import { PwaClient } from "@/components/pwa/pwa-client";
 import type { Branding } from "@/lib/erp/branding";
 
 /** The server passes the session it already resolved, so permission-based menus render correctly on first paint. */
@@ -14,6 +15,7 @@ export function Providers({ branding, session, children }: { branding: Branding;
     <SessionProvider session={session ?? undefined}>
       <BrandingProvider value={branding}>
         <NativeBridge />
+        <PwaClient />
         {children}
       </BrandingProvider>
     </SessionProvider>
