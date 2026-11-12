@@ -45,6 +45,26 @@ export const SETTINGS = {
     defaults: { enabled: false, mode: "test", testPublicKey: "", livePublicKey: "", currency: "NGN" },
     secrets: { testSecretKey: keyPattern("sk_test_"), liveSecretKey: keyPattern("sk_live_") },
   },
+  "ai.wallet": {
+    label: "AI Wallet",
+    permission: "ai.manage",
+    value: z.object({
+      /** Coins given once to each pharmacy when its wallet is opened. */
+      welcomeBonusEnabled: z.boolean(),
+      welcomeBonusCoins: z.number().int().min(0).max(1_000_000),
+      welcomeBonusReason: z.string().trim().min(3).max(120),
+      /** Low-balance alerts (coins), highest first. Each level is announced once until the balance rises again. */
+      lowBalanceThresholds: z.array(z.number().int().min(0).max(1_000_000)).max(5),
+      /** Coin purchases a pharmacy may make per day (null: no limit). */
+      maxPurchasesPerDay: z.number().int().min(1).max(100).nullable(),
+      /** Naira per US dollar used to compare provider costs (USD) with coin revenue (NGN). Null: not configured. */
+      usdToNgnRate: z.number().positive().max(100_000).nullable(),
+      /** Optional accounting value of one coin in naira (used only for reports). Null: not configured. */
+      ngnPerCoin: z.number().positive().max(100_000).nullable(),
+    }),
+    defaults: { welcomeBonusEnabled: true, welcomeBonusCoins: 500, welcomeBonusReason: "Welcome bonus: free AI coins to try AI document scanning", lowBalanceThresholds: [100, 50], maxPurchasesPerDay: 10, usdToNgnRate: null, ngnPerCoin: null },
+    secrets: {},
+  },
   "email.delivery": {
     label: "Email delivery",
     permission: "settings.manage",

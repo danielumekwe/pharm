@@ -33,11 +33,12 @@ export type PageInput = {
 
 export type RawRecord = { kind: string; fields: Record<string, unknown>; region?: unknown };
 export type PageExtraction = {
-  page: { type: string; readable: boolean; notes: string; transcription: string };
+  page: { type: string; readable: boolean; handwriting: "none" | "some" | "mostly"; notes: string; transcription: string };
   records: RawRecord[];
   provider: string;
   model: string;
-  usage?: { inputTokens: number; outputTokens: number };
+  requestId: string | null;
+  usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number };
 };
 
 export type TextReading = { text: string; lines?: { text: string; box?: { x: number; y: number; width: number; height: number } }[] };
@@ -161,13 +162,15 @@ function anthropicReader(): DocumentReader {
         page: {
           type: String(parsed.page?.type ?? "other"),
           readable: parsed.page?.readable !== false,
+          handwriting: parsed.page?.handwriting === "mostly" || parsed.page?.handwriting === "some" ? parsed.page.handwriting : "none",
           notes: String(parsed.page?.notes ?? "").slice(0, 2000),
           transcription: String(parsed.page?.transcription ?? "").slice(0, 20000),
         },
         records: Array.isArray(parsed.records) ? parsed.records.slice(0, 500) : [],
         provider: "anthropic",
         model: response.model ?? model,
-        usage: { inputTokens: response.usage?.input_tokens ?? 0, outputTokens: response.usage?.output_tokens ?? 0 },
+        requestId: (response as { _request_id?: string | null })._request_id ?? response.id ?? null,
+        usage: { inputTokens: response.usage?.input_tokens ?? 0, outputTokens: response.usage?.output_tokens ?? 0, cacheReadTokens: response.usage?.cache_read_input_tokens ?? 0, cacheCreationTokens: response.usage?.cache_creation_input_tokens ?? 0 },
       };
     },
   };

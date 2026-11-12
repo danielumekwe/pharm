@@ -27,7 +27,9 @@ export type PlatformPermission =
   | "staff.manage"
   | "rateLimits.manage"
   | "support.tickets"
-  | "content.manage";
+  | "content.manage"
+  | "ai.view"
+  | "ai.manage";
 
 export type PlatformActor = {
   id: string;
@@ -50,10 +52,10 @@ export const PLATFORM_ROLE_LABELS: Record<PlatformRole, string> = {
 };
 /** Least privilege: each role gets only what its job needs. */
 const ROLE_PERMISSIONS: Record<PlatformRole, PlatformPermission[]> = {
-  PLATFORM_SUPER_ADMIN: ["dashboard.view", "tenants.view", "tenants.manage", "plans.manage", "billing.manage", "settings.manage", "support.request", "audit.view", "staff.manage", "rateLimits.manage", "support.tickets", "content.manage"],
-  PLATFORM_SUPPORT: ["dashboard.view", "tenants.view", "support.request", "audit.view", "support.tickets", "content.manage"],
-  BILLING_ADMIN: ["dashboard.view", "tenants.view", "plans.manage", "billing.manage", "audit.view"],
-  TECHNICAL_ADMIN: ["dashboard.view", "tenants.view", "settings.manage", "audit.view"],
+  PLATFORM_SUPER_ADMIN: ["dashboard.view", "tenants.view", "tenants.manage", "plans.manage", "billing.manage", "settings.manage", "support.request", "audit.view", "staff.manage", "rateLimits.manage", "support.tickets", "content.manage", "ai.view", "ai.manage"],
+  PLATFORM_SUPPORT: ["dashboard.view", "tenants.view", "support.request", "audit.view", "support.tickets", "content.manage", "ai.view"],
+  BILLING_ADMIN: ["dashboard.view", "tenants.view", "plans.manage", "billing.manage", "audit.view", "ai.view", "ai.manage"],
+  TECHNICAL_ADMIN: ["dashboard.view", "tenants.view", "settings.manage", "audit.view", "ai.view"],
 };
 
 export function platformCan(actor: PlatformActor, permission: PlatformPermission) {

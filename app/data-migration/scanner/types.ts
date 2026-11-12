@@ -73,6 +73,7 @@ export type JobDetail = {
   report: { generatedAt: string; approvedBy: string } | null;
   settings: { provider: string | null; model: string | null; providerConfigured: boolean; providerProblem: string | null; aiApproved: boolean; canChange: boolean };
   permissions: { approve: boolean; importInventory: boolean; financeCreate: boolean; suppliers: boolean };
+  billing: { pages: number; prices: { standard: number; additional: number; handwritten: number }; minimum: number; reserve: number; available: number; reserved: number; sufficient: boolean; canBuy: boolean; canView: boolean };
   pages: ScanPageView[];
   records: ScanRecordView[];
   fields: Partial<Record<RecordKind, FieldDef[]>>;

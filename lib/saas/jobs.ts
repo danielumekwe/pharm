@@ -52,8 +52,12 @@ export async function runPlatformJobs(trigger: string, connectionString?: string
     const { processWhatsAppQueue, queueRenewalReminders } = await import("@/lib/notify/whatsapp/service");
     const reminders = await queueRenewalReminders().catch((error) => { console.error("[whatsapp] renewal reminders", error instanceof Error ? error.message : "error"); return 0; });
     const whatsapp = await processWhatsAppQueue().catch((error) => { console.error("[whatsapp] queue", error instanceof Error ? error.message : "error"); return { due: 0 }; });
+    // AI Wallet: settle interrupted holds, re-check pending coin payments, compare balances with the ledger.
+    const { reconcileAi } = await import("@/lib/ai/reconcile");
+    const ai = await reconcileAi(`job:${trigger}`, { minIntervalMinutes: trigger === "manual" ? 0 : 10 }).catch((error) => { console.error("[ai-wallet] reconciliation", error instanceof Error ? error.message : "error"); return null; });
+    const aiDetail = ai ? `; AI wallets ${ai.walletsChecked} checked, ${ai.mismatches.length} difference(s), ${ai.actions.length} action(s)` : "";
     const whatsappDetail = whatsapp.due || reminders ? `; WhatsApp ${whatsapp.due} due${"SENT" in whatsapp ? `, ${whatsapp.SENT} sent` : ""}${reminders ? `, ${reminders} renewal reminder(s) queued` : ""}` : "";
-    await platformQuery((query) => query(`UPDATE platform_job_runs SET finished_at = now(), detail = $1 WHERE id = $2`, [`${result.due} due, ${result.sent} sent${whatsappDetail}`, runId])).catch(() => undefined);
+    await platformQuery((query) => query(`UPDATE platform_job_runs SET finished_at = now(), detail = $1 WHERE id = $2`, [`${result.due} due, ${result.sent} sent${whatsappDetail}${aiDetail}`, runId])).catch(() => undefined);
     return result;
   } catch (error) {
     await platformQuery((query) => query(`UPDATE platform_job_runs SET finished_at = now(), failed = 1, detail = $1 WHERE id = $2`, [`Failed: ${error instanceof Error ? error.message : "error"}`.slice(0, 300), runId])).catch(() => undefined);

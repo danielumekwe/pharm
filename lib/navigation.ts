@@ -40,6 +40,7 @@ import {
   UserCog,
   Users,
   Wallet,
+  Coins,
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
@@ -123,6 +124,7 @@ export const NAVIGATION: NavGroup[] = [
       { name: "Help Articles", href: "/help", icon: FileText, keywords: "guide how to knowledge base faq" },
       { name: "Audit Logs", href: "/audit", icon: ScrollText },
       { name: "System Settings", href: "/settings", icon: Settings },
+      { name: "AI Wallet", href: "/ai-wallet", icon: Coins, keywords: "ai coins credits buy coins wallet balance scan cost paystack top up" },
       { name: "Data Import Centre", href: "/data-migration", icon: ScanText, keywords: "data migration ai document scanner scan paper records handwritten stock book sales register receipts photo camera pdf import" },
       { name: "Install PharmaERP", href: "/install", icon: MonitorDown, keywords: "install app pwa desktop home screen offline download" },
       { name: "Offline Mode & Devices", href: "/settings/devices", icon: Smartphone, keywords: "offline devices revoke tablet terminal pin" },

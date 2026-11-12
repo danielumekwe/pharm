@@ -203,7 +203,7 @@ export function JobWorkspace({ initial, stockModes, limits }: { initial: JobDeta
               </ActionButton>
             ) : null}
             {!closed && unread.length ? (
-              <ActionButton disabled={busy || !canExtract} onClick={() => startExtraction()} title={canExtract ? undefined : "AI reading is not available"}>
+              <ActionButton disabled={busy || !canExtract || !detail.billing.sufficient} onClick={() => startExtraction()} title={canExtract ? undefined : "AI reading is not available"}>
                 <Sparkles className="h-4 w-4" /> Start AI extraction ({unread.length} page{unread.length === 1 ? "" : "s"})
               </ActionButton>
             ) : null}
@@ -213,6 +213,31 @@ export function JobWorkspace({ initial, stockModes, limits }: { initial: JobDeta
           <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
             {detail.settings.providerConfigured ? "AI reading has not been approved for your pharmacy yet. A Super Administrator can approve it in the Data Import Centre." : `AI reading is not set up on this server (${detail.settings.providerProblem}).`} You can still type records in by hand below.
           </p>
+        ) : null}
+        {!closed && unread.length && canExtract ? (
+          <div className={`flex flex-col gap-2 rounded-lg border p-3 text-sm sm:flex-row sm:items-center sm:justify-between ${detail.billing.sufficient ? "border-slate-700 bg-slate-950/50 text-slate-300" : "border-rose-500/40 bg-rose-500/10 text-rose-200"}`} data-scan-estimate>
+            <div>
+              <p>
+                <span className="font-medium text-white">Estimated cost:</span> {detail.billing.pages} page(s) ×{" "}
+                {detail.billing.prices.standard === detail.billing.prices.handwritten ? `${detail.billing.prices.standard} coins` : `${Math.min(detail.billing.prices.standard, detail.billing.prices.additional)}–${detail.billing.prices.handwritten} coins (handwritten pages cost more)`}
+                {" = "}
+                {detail.billing.minimum === detail.billing.reserve ? `${detail.billing.reserve.toLocaleString("en-NG")} coins` : `${detail.billing.minimum.toLocaleString("en-NG")}–${detail.billing.reserve.toLocaleString("en-NG")} coins`}.
+                {" "}Available: <span className="font-medium text-white">{detail.billing.available.toLocaleString("en-NG")}</span> coins.
+              </p>
+              <p className="mt-0.5 text-xs opacity-80">
+                {detail.billing.sufficient
+                  ? `${detail.billing.reserve.toLocaleString("en-NG")} coins are held while the pages are read; each page is charged when read, pages that cannot be read are free, and the rest is returned.`
+                  : "You do not have enough AI coins to process these documents. Please purchase additional coins."}
+              </p>
+            </div>
+            {!detail.billing.sufficient ? (
+              detail.billing.canBuy ? (
+                <Link href="/ai-wallet?tab=buy" className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 px-3 text-sm font-medium text-[#fff] hover:bg-blue-700">Buy coins</Link>
+              ) : (
+                <span className="text-xs">Ask your Pharmacy Super Admin to buy coins{detail.billing.canView ? <> (<Link href="/ai-wallet" className="underline">AI Wallet</Link>)</> : null}.</span>
+              )
+            ) : null}
+          </div>
         ) : null}
         {reading ? (
           <div className="space-y-2 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-200">

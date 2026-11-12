@@ -20,6 +20,7 @@ const GROUPS: Array<{ label: string; links: Link[] }> = [
     { href: "/platform/plans", label: "Plans", icon: "plans", permission: "plans.manage" },
     { href: "/platform/settings/payments", label: "Payment gateway", icon: "payments", permission: "billing.manage" },
     { href: "/platform/settings/billing", label: "Billing policy", icon: "billing", permission: "billing.manage" },
+    { href: "/platform/ai", label: "AI Usage & Billing", icon: "ai", permission: "ai.view" },
   ] },
   { label: "Platform", links: [
     { href: "/platform/settings/email", label: "Email", icon: "email", permission: "settings.manage" },

@@ -121,6 +121,8 @@ before(async () => {
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${mock.address().port}`,
     DOCUMENT_SCAN_RETRY_SECONDS: "0",
   });
+  // Scanning is paid for with AI coins: give the test pharmacies plenty (the AI Wallet has its own tests).
+  await server.query(`INSERT INTO platform_settings (key, value) VALUES ('ai.wallet', '{"welcomeBonusCoins": 100000}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
   admin = await signedIn(server.baseUrl, "admin@web365.ng");
 });
 after(async () => {

@@ -52,6 +52,10 @@ import {
   type ScanCategory,
 } from "@/lib/scanner/fields";
 import { providerStatus, type PageExtraction } from "@/lib/scanner/providers";
+import { deliverWalletEvents, notifyPharmacy } from "@/lib/ai/notify";
+import { chargePage, releasePage, releaseScanJob, reservePages, scanEstimate, SCAN_SERVICE } from "@/lib/ai/scan-billing";
+import { recordUsage } from "@/lib/ai/wallet";
+import { platformQuery } from "@/lib/db/database";
 
 // ---------------------------------------------------------------- limits
 
@@ -557,11 +561,15 @@ export async function startExtraction(actor: Actor, jobId: string, input: { page
     if (pages.some((page) => page.status === "QUEUED" || page.status === "PROCESSING")) return { ...(await jobDetail(actor, job.id)), started: 0 };
     throw new DomainError(pages.length ? "Every page has already been read. Use Reprocess on a page to read it again." : "Add at least one page first.");
   }
+  // AI Wallet: check limits and reserve the coins for these pages before any page is sent (the backend prices
+  // them; nothing from the browser). Not enough coins: nothing is queued and nothing is charged.
+  const held = await reservePages({ tenantId: currentTenantId(), jobId: job.id, jobReference: job.reference, pageIds: queue.map((page) => page.id), by: { id: actor.id, name: actor.name }, key: `scan:${job.id}:${randomUUID()}` });
+  await deliverWalletEvents(currentTenantId(), held.events);
   for (const page of queue) {
     await runSql(`UPDATE document_scan_pages SET status = 'QUEUED', attempts = 0, error = NULL, next_attempt_at = NULL, lease_until = NULL WHERE id = $1 AND tenant_id = $2`, [page.id, currentTenantId()]);
   }
   await update("document_scan_jobs", job.id, { status: "PROCESSING", provider: `${settings.provider}${settings.model ? `:${settings.model}` : ""}`, message: null });
-  recordAudit(actor, { action: "documents.scan.extract", entity: "DocumentScan", entityId: job.reference, summary: `Sent ${queue.length} page(s) of ${job.reference} to the AI provider (${settings.provider}) for reading`, outletId: job.outletId });
+  recordAudit(actor, { action: "documents.scan.extract", entity: "DocumentScan", entityId: job.reference, summary: `Sent ${queue.length} page(s) of ${job.reference} to the AI provider (${settings.provider}) for reading${held.coins ? `; ${held.coins} AI coins reserved` : ""}`, outletId: job.outletId });
   return { ...(await jobDetail(actor, job.id)), started: queue.length };
 }
 
@@ -618,13 +626,22 @@ export async function claimNextPage(actor: Actor, jobId: string): Promise<Claime
 }
 
 /** Stores what the provider read (or why it failed). Ignored if the page's lease was taken over meanwhile. */
-export async function completePage(actor: Actor, claim: Pick<ClaimedPage, "jobId" | "pageId" | "attempt">, outcome: { extraction: PageExtraction } | { error: string; retryable: boolean }) {
+export type PageOutcome = { extraction: PageExtraction; durationMs?: number } | { error: string; retryable: boolean; durationMs?: number; provider?: string; model?: string };
+
+export async function completePage(actor: Actor, claim: Pick<ClaimedPage, "jobId" | "pageId" | "attempt">, outcome: PageOutcome) {
   assertScanner(actor);
   const job = await loadJob(actor, claim.jobId, true);
   const [row] = await runSql<DbRow>(`SELECT * FROM document_scan_pages WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [claim.pageId, currentTenantId()]);
   const page = row ? pageFromDb(row) : null;
   if (!page || page.status !== "PROCESSING" || page.attempts !== claim.attempt) return { stored: false };
+  const tenantId = currentTenantId();
+  const by = { id: actor.id, name: actor.name };
+  const statusBefore = job.status;
   if ("error" in outcome) {
+    const final = !(outcome.retryable && page.attempts < MAX_ATTEMPTS);
+    // Every provider request is recorded (failed ones too); a failed page is never charged.
+    await platformQuery((query) => recordUsage(query, { tenantId, user: by, service: SCAN_SERVICE, operationCode: "document.page.failed", jobId: job.id, jobReference: job.reference, unitId: page.id, provider: outcome.provider ?? "anthropic", model: outcome.model ?? "unknown", requestId: null, usage: null, durationMs: outcome.durationMs ?? null, status: "FAILED", attempt: page.attempts, error: outcome.error, coinsCharged: 0 }));
+    if (final) await releasePage({ tenantId, pageId: page.id, reason: `Page ${page.position} could not be read`, by });
     if (outcome.retryable && page.attempts < MAX_ATTEMPTS) {
       // Back-off with jitter: about 20 s, 60 s, 180 s (DOCUMENT_SCAN_RETRY_SECONDS changes the base, e.g. 0 in tests).
       const configured = Number(process.env.DOCUMENT_SCAN_RETRY_SECONDS);
@@ -636,6 +653,7 @@ export async function completePage(actor: Actor, claim: Pick<ClaimedPage, "jobId
       recordAudit(actor, { action: "documents.scan.failed", entity: "DocumentScan", entityId: job.reference, summary: `Page ${page.position} of ${job.reference} could not be read: ${outcome.error.slice(0, 200)}. The image is kept for retry or manual entry.`, outletId: job.outletId, severity: "warning" });
     }
     await settleStatus(job.id);
+    await announceFinished(actor, job, statusBefore);
     return { stored: true };
   }
 
@@ -663,8 +681,33 @@ export async function completePage(actor: Actor, claim: Pick<ClaimedPage, "jobId
     processed_at: NOW,
     extraction: { ...extraction.page, provider: extraction.provider, model: extraction.model, records: index, usage: extraction.usage },
   });
+  // Charge this page (once: a repeated completion finds nothing held) and record the provider usage.
+  const pageNumber = (await loadPages(job.id)).findIndex((entry) => entry.id === page.id) + 1;
+  const charge = await chargePage({ tenantId, jobId: job.id, jobReference: job.reference, pageId: page.id, pageNumber, handwritten: extraction.page.handwriting === "mostly", by });
+  await platformQuery((query) =>
+    recordUsage(query, { tenantId, user: by, service: SCAN_SERVICE, operationCode: charge.operationCode, jobId: job.id, jobReference: job.reference, unitId: page.id, provider: extraction.provider, model: extraction.model, requestId: extraction.requestId, usage: extraction.usage ?? null, durationMs: outcome.durationMs ?? null, status: "SUCCESS", attempt: page.attempts, coinsCharged: charge.coins }),
+  );
+  await deliverWalletEvents(tenantId, charge.events);
   await settleStatus(job.id);
-  return { stored: true, records: index };
+  await announceFinished(actor, job, statusBefore);
+  return { stored: true, records: index, coins: charge.coins };
+}
+
+/** Tells the person who started the job when reading has finished (or failed). */
+async function announceFinished(actor: Actor, job: Job, before: JobStatus) {
+  if (before !== "PROCESSING") return;
+  const [row] = await runSql<DbRow>(`SELECT status, message FROM document_scan_jobs WHERE id = $1 AND tenant_id = $2`, [job.id, currentTenantId()]);
+  if (!row || row.status === "PROCESSING") return;
+  const failed = row.status === "FAILED";
+  await notifyPharmacy(currentTenantId(), [
+    {
+      userId: job.createdById,
+      title: failed ? `AI could not read ${job.reference}` : `AI finished reading ${job.reference}`,
+      body: failed ? "None of the pages could be read, and no coins were charged for them. Retry them, or type the records in by hand." : `The pages of “${job.title}” are ready to check.${row.message ? ` ${row.message}` : ""}`,
+      severity: failed ? "warning" : "info",
+      link: `/data-migration/scanner/${encodeURIComponent(job.id)}`,
+    },
+  ]);
 }
 
 // ---------------------------------------------------------------- status
@@ -897,6 +940,9 @@ export async function jobDetail(actor: Actor, id: string) {
   views.forEach((view, index) => (view.number = index + 1));
   const settings = scannerSettings(actor);
   const totalPages = pages.length;
+  const unread = pages.filter((page) => page.status === "UPLOADED" || page.status === "FAILED").length;
+  const estimate = await scanEstimate(currentTenantId(), job.id, unread);
+  await deliverWalletEvents(currentTenantId(), estimate.events);
   const count = (status: RecordStatus) => views.filter((view) => view.status === status).length;
   const pendingViews = views.filter((view) => view.status === "PENDING");
   return {
@@ -905,6 +951,7 @@ export async function jobDetail(actor: Actor, id: string) {
     imports: job.imports,
     report: job.report ? { generatedAt: job.report.generatedAt, approvedBy: job.report.approvedBy } : null,
     settings,
+    billing: { pages: estimate.pages, prices: estimate.prices, minimum: estimate.minimum, reserve: estimate.reserve, available: estimate.available, reserved: estimate.reserved, sufficient: estimate.sufficient, canBuy: can(actor, "ai.coins.purchase"), canView: can(actor, "ai.wallet.view") },
     permissions: { approve: can(actor, "documents.approve"), importInventory: can(actor, "inventory.import"), financeCreate: can(actor, "finance.create"), suppliers: can(actor, "contacts.manage") && (can(actor, "purchase.create") || can(actor, "purchase.approve")) },
     pages: pages.map((page, index) => ({
       id: page.id,
@@ -1104,6 +1151,7 @@ export async function cancelJob(actor: Actor, jobId: string, reason: unknown) {
   await runSql(`UPDATE document_scan_pages SET status = CASE WHEN status IN ('QUEUED', 'PROCESSING') THEN 'UPLOADED' ELSE status END, lease_until = NULL WHERE job_id = $1 AND tenant_id = $2`, [job.id, currentTenantId()]);
   const text = typeof reason === "string" ? reason.trim().slice(0, 300) : "";
   await update("document_scan_jobs", job.id, { status: "CANCELLED", message: text ? `Cancelled: ${text}` : "Cancelled" });
+  await releaseScanJob({ tenantId: currentTenantId(), jobId: job.id, reason: "Scanning job cancelled", by: { id: actor.id, name: actor.name } });
   recordAudit(actor, { action: "documents.scan.cancel", entity: "DocumentScan", entityId: job.reference, summary: `Cancelled scanning job ${job.reference}${text ? `: ${text}` : ""}. Uploaded pages are kept.`, outletId: job.outletId, severity: "warning" });
   return jobDetail(actor, job.id);
 }

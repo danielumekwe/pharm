@@ -5,6 +5,7 @@ import { platformQuery } from "@/lib/db/database";
 import { paystack } from "@/lib/billing/paystack";
 import { syncRefundsForReference } from "@/lib/billing/refunds";
 import { settlePayment } from "@/lib/billing/service";
+import { PURCHASE_PREFIX, settleCoinPurchase } from "@/lib/ai/purchases";
 import { recordPlatformAudit } from "@/lib/platform/audit";
 
 /**
@@ -37,7 +38,15 @@ export async function POST(request: Request) {
 
   let result = "ignored";
   try {
-    if (event.type === "charge.success" && event.reference) {
+    if (event.type === "charge.success" && event.reference?.startsWith(PURCHASE_PREFIX)) {
+      // AI coin purchase: verified with Paystack's API and credited once (the body is not trusted).
+      const settlement = await settleCoinPurchase(event.reference, "webhook");
+      result = `ai-coins:${settlement.outcome}`;
+      if (settlement.outcome === "unknown") {
+        await recordPlatformAudit({ id: null, name: "Paystack webhook", type: "system" }, { action: "ai.unknown-payment", targetType: "AICoinPurchase", targetId: event.reference, summary: `Paystack reported a successful charge for unknown AI coin reference ${event.reference}; check it by hand`, severity: "critical" });
+      }
+      if (settlement.outcome === "pending") throw new Error("Payment not confirmed yet");
+    } else if (event.type === "charge.success" && event.reference) {
       const settlement = await settlePayment(event.reference, "webhook");
       result = settlement.outcome;
       if (settlement.outcome === "unknown") {

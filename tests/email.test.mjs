@@ -91,7 +91,8 @@ describe("Access", () => {
 describe("Delivery log", () => {
   test("registration emails are logged; message bodies are not kept for sent emails", async () => {
     const rows = await deliveries("recipient = ?", OWNER);
-    assert.deepEqual(rows.map((row) => [row.category, row.template, row.status, row.provider]), [["account", "verify_email", "SENT", "json"], ["account", "trial_started", "SENT", "json"]]);
+    // The AI Wallet's welcome-coins email is sent after the response, so it may be logged in any order.
+    assert.deepEqual(rows.map((row) => [row.category, row.template, row.status, row.provider]).sort(), [["account", "trial_started", "SENT", "json"], ["account", "verify_email", "SENT", "json"], ["billing", "ai_coins_credited", "SENT", "json"]]);
     assert.ok(rows.every((row) => row.body_ciphertext === null && row.attempts === 1));
   });
 });
@@ -170,7 +171,7 @@ describe("ZeptoMail API", () => {
     [row] = await deliveries("id = ?", row.id);
     assert.equal(row.status, "SENT");
     const [run] = await server.query("SELECT detail FROM platform_job_runs WHERE job = 'email-queue' ORDER BY started_at DESC LIMIT 1");
-    assert.equal(run.detail, "1 due, 1 sent");
+    assert.match(run.detail, /^1 due, 1 sent(;|$)/);
   });
 
   test("the application cannot delete or truncate the delivery log", async () => {

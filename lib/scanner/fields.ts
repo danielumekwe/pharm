@@ -371,10 +371,11 @@ export function extractionSchema(category: ScanCategory) {
         properties: {
           type: { type: "string", enum: ["inventory_list", "sales_register", "receipt", "daily_summary", "expense_record", "supplier_record", "other", "unreadable"] },
           readable: { type: "boolean" },
+          handwriting: { type: "string", enum: ["none", "some", "mostly"], description: "How much of the page's content is handwritten" },
           notes: { type: "string", description: "Anything a reviewer should know: torn, faded, crossed-out entries, unclear abbreviations" },
           transcription: { type: "string", description: "Plain transcription of the page, line by line" },
         },
-        required: ["type", "readable", "notes", "transcription"],
+        required: ["type", "readable", "handwriting", "notes", "transcription"],
         additionalProperties: false,
       },
       records: {

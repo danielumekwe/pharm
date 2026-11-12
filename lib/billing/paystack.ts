@@ -35,6 +35,7 @@ type PaystackTransaction = {
   channel?: string | null;
   paid_at?: string | null;
   gateway_response?: string | null;
+  fees?: number | null;
   customer?: { customer_code?: string | null } | null;
   authorization?: { authorization_code?: string; card_type?: string; last4?: string; exp_month?: string; exp_year?: string; bank?: string; reusable?: boolean } | null;
 };
@@ -86,6 +87,7 @@ export const paystack: PaymentProvider = {
       paidAt: data.paid_at ?? null,
       failureReason: data.status === "success" ? null : data.gateway_response ?? data.status,
       customerCode: data.customer?.customer_code ?? null,
+      feesMinor: typeof data.fees === "number" ? data.fees : null,
       authorization: card?.authorization_code && card.reusable
         ? { code: card.authorization_code, label: [card.card_type?.trim(), card.last4 ? `•••• ${card.last4}` : null, card.exp_month && card.exp_year ? `exp ${card.exp_month}/${card.exp_year}` : null].filter(Boolean).join(" ") }
         : null,

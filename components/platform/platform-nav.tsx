@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3, Bell, BookOpen, Building2, CreditCard, FileClock, KeyRound, LayoutDashboard, LifeBuoy, Mail, Megaphone, Menu, MessageCircle, Palette, Plug, Receipt,
+  BarChart3, Bell, Coins, BookOpen, Building2, CreditCard, FileClock, KeyRound, LayoutDashboard, LifeBuoy, Mail, Megaphone, Menu, MessageCircle, Palette, Plug, Receipt,
   ScrollText, Search, Server, ShieldAlert, ShieldCheck, ShieldHalf, UserCog, Users, X,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 const ICONS = {
   dashboard: LayoutDashboard, pharmacies: Building2, support: LifeBuoy, announcements: Megaphone, help: BookOpen, plans: Receipt, payments: CreditCard, billing: BarChart3,
-  email: Mail, whatsapp: MessageCircle, system: Server, branding: Palette, integrations: Plug, audit: ScrollText, securityLog: FileClock, securityPolicy: ShieldHalf, rateLimits: ShieldAlert, staff: UserCog, mySecurity: KeyRound, users: Users,
+  email: Mail, whatsapp: MessageCircle, system: Server, branding: Palette, integrations: Plug, audit: ScrollText, securityLog: FileClock, securityPolicy: ShieldHalf, rateLimits: ShieldAlert, staff: UserCog, mySecurity: KeyRound, users: Users, ai: Coins,
 } as const;
 export type NavIcon = keyof typeof ICONS;
 export type NavGroup = { label: string; links: { href: string; label: string; icon: NavIcon; badge?: number }[] };

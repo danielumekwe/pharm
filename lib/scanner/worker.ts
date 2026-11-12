@@ -23,14 +23,19 @@ export async function runQueue(jobId: string, budgetMs: number) {
     const claim = holder.claim;
     if (!claim) break;
     let outcome: Parameters<typeof completePage>[2];
+    const started = Date.now();
+    let reader: { id: string; model: string } | null = null;
     try {
-      const extraction = await documentReader().readPage({ image: claim.image, mimeType: claim.mimeType, category: claim.category, guidance: claim.guidance, pageNumber: claim.pageNumber, pageCount: claim.pageCount });
-      outcome = { extraction };
+      const instance = documentReader();
+      reader = instance;
+      const extraction = await instance.readPage({ image: claim.image, mimeType: claim.mimeType, category: claim.category, guidance: claim.guidance, pageNumber: claim.pageNumber, pageCount: claim.pageCount });
+      outcome = { extraction, durationMs: Date.now() - started };
     } catch (error) {
-      if (error instanceof ProviderError) outcome = { error: error.message, retryable: error.retryable };
+      const meta = { durationMs: Date.now() - started, provider: reader?.id, model: reader?.model };
+      if (error instanceof ProviderError) outcome = { error: error.message, retryable: error.retryable, ...meta };
       else {
         console.error("[scanner] page reading failed", error);
-        outcome = { error: "Reading the page failed unexpectedly. It will be tried again.", retryable: true };
+        outcome = { error: "Reading the page failed unexpectedly. It will be tried again.", retryable: true, ...meta };
       }
     }
     await guarded(PERMISSIONS, (actor) => completePage(actor, claim, outcome));

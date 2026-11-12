@@ -51,6 +51,8 @@ export const config = {
     "/stock/:path*",
     "/finance/:path*",
     "/billing/:path*",
+    "/ai-wallet/:path*",
+    "/data-migration/:path*",
     "/outlets/:path*",
     "/reports/:path*",
     "/regulatory/:path*",

@@ -156,6 +156,10 @@ export async function registerPharmacy(input: RegistrationInput): Promise<Regist
     throw error;
   }
 
+  // AI Wallet with the welcome bonus (once per pharmacy; a failure here never blocks registration).
+  const { openWalletForNewPharmacy } = await import("@/lib/ai/pharmacy");
+  await openWalletForNewPharmacy(tenantId).catch((error) => console.error("[registration] AI wallet not opened", error instanceof Error ? error.message : "error"));
+
   let verificationEmail: RegistrationResult["verificationEmail"] = "FAILED";
   try {
     verificationEmail = (await sendVerificationEmail(owner, input.businessName)).status;

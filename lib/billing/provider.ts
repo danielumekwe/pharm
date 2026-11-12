@@ -13,6 +13,8 @@ export type VerifiedPayment = {
   paidAt: string | null;
   failureReason: string | null;
   customerCode: string | null;
+  /** The provider's fee in minor units, when it reports one. */
+  feesMinor?: number | null;
   /** A saved card that may be charged again for renewals (when the provider marks it reusable). */
   authorization: { code: string; label: string } | null;
 };
