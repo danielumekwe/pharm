@@ -73,6 +73,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   passwordMinLength: 8,
   catalog: defaultCatalog(),
   pos: { cashierMaxDiscountPct: 5, approverMaxDiscountPct: 25 },
+  offline: { enabled: true, sessionHours: 72, stockPolicy: "cached-limit" },
   salesTargets: { "outlet-1": 350_000, "outlet-2": 300_000, "outlet-3": 250_000 },
 };
 
@@ -445,6 +446,7 @@ export function getStore(): ErpStore {
   store.heldSales ??= [];
   store.transfers ??= [];
   store.settings.pos ??= { ...DEFAULT_SETTINGS.pos };
+  store.settings.offline ??= { ...DEFAULT_SETTINGS.offline };
   store.settings.salesTargets ??= { ...DEFAULT_SETTINGS.salesTargets };
   store.settings.impersonation ??= { ...DEFAULT_SETTINGS.impersonation };
   store.settings.lowStock ??= { ...DEFAULT_SETTINGS.lowStock, outletMins: {}, productMins: {} };

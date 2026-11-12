@@ -6,6 +6,7 @@ import { useState, useSyncExternalStore } from "react";
 import { ActionButton } from "@/components/erp/fields";
 import { PageHeader } from "@/components/erp/page-header";
 import { Panel } from "@/components/erp/stat-card";
+import { OfflineSetup, type OfflineSetupProps } from "@/components/offline/offline-setup";
 import { usePwa } from "@/components/pwa/pwa-client";
 import { promptInstall } from "@/components/pwa/pwa-store";
 
@@ -78,7 +79,7 @@ function Status({ ok, label, detail }: { ok: boolean | null; label: string; deta
   );
 }
 
-export function InstallWorkspace() {
+export function InstallWorkspace({ offline }: { offline: OfflineSetupProps | null }) {
   const pwa = usePwa();
   const platform = useSyncExternalStore(noSubscription, detectPlatform, () => "other" as Platform);
   const [message, setMessage] = useState<string | null>(null);
@@ -129,9 +130,10 @@ export function InstallWorkspace() {
             label={pwa.connection === "offline" ? "Offline" : pwa.connection === "checking" ? "Checking connection…" : "Connected to PharmaERP"}
             detail={pwa.lastReachable ? `Server last reached at ${new Date(pwa.lastReachable).toLocaleTimeString()}. Checked automatically; you never need to refresh.` : "The connection is checked automatically."}
           />
-          <Status ok={null} label="Offline device registration: not available yet" detail="Registering this device for offline selling comes with the offline POS update. Until then PharmaERP needs an internet connection to load and save data." />
         </ul>
       </Panel>
+
+      {offline ? <OfflineSetup {...offline} /> : null}
 
       <Panel title="What works without internet today" description="Honest status of offline support in this version.">
         <ul className="grid gap-2 text-sm text-slate-300 md:grid-cols-2">
@@ -139,7 +141,11 @@ export function InstallWorkspace() {
           <li>✓ When the connection drops, you see a clear offline screen instead of a browser error.</li>
           <li>✓ The app notices when the connection returns and reopens the screen on its own.</li>
           <li>✓ The header shows Online / Offline at all times.</li>
-          <li className="text-slate-400">• Selling, stock receiving and adjustments still need a connection. Offline POS with automatic upload is the next update.</li>
+          <li>✓ A registered device keeps its outlet&apos;s products, barcodes, prices and batch stock, and unlocks with a PIN.</li>
+          <li>✓ Offline till: cash sales (card and transfer recorded as pending verification), receipts and drafts.</li>
+          <li>✓ Offline stock receiving, new products and adjustments, by permission.</li>
+          <li>✓ Everything uploads automatically when the connection returns, exactly once; conflicts go to Offline Sync &amp; Reconciliation.</li>
+          <li className="text-slate-400">• Reports offline are the last downloaded figures, shown with their date. Dashboards, transfers, purchasing and settings need a connection.</li>
           <li className="text-slate-400">• Nothing is ever recorded as saved unless the server has confirmed it.</li>
         </ul>
       </Panel>

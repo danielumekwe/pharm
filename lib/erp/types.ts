@@ -113,6 +113,20 @@ export type SaleInvoice = {
   /** Held/draft basket this sale was completed from. */
   heldId?: string;
   receiptPrints?: number;
+  /** Sale made on a device without internet and uploaded later. */
+  offline?: {
+    operationId: string;
+    deviceId: string;
+    deviceName: string;
+    /** Receipt number printed on the device, e.g. OFF-3F9A2C-0007. */
+    localNumber: string;
+    soldAt: string;
+    syncedAt: string;
+    /** Card / transfer amounts recorded offline that nobody has confirmed yet. */
+    unverifiedTenders?: { method: string; amount: number; reference?: string }[];
+    /** Set when someone confirmed (or flagged) the unverified tenders. */
+    verification?: { outcome: "verified" | "not-received"; by: string; at: string; note?: string };
+  };
 };
 
 /** A basket parked at the till (held for a waiting customer, or saved as a draft). Not a sale: no stock moves. */
@@ -329,6 +343,20 @@ export type SystemSettings = {
   };
   /** Daily sales target per outlet (₦). Outlets without a target show no progress bar. */
   salesTargets: Record<string, number>;
+  /** Offline use of registered devices (installed app). */
+  offline: OfflinePolicy;
+};
+
+export type OfflinePolicy = {
+  /** Whether staff may register devices for offline use. */
+  enabled: boolean;
+  /**
+   * How long a device may keep working without reaching the server. A device that is fully disconnected
+   * cannot receive a revocation, so offline access always expires after this many hours.
+   */
+  sessionHours: number;
+  /** Offline sales beyond the stock the device last downloaded: allowed (reconciled later) or blocked. */
+  stockPolicy: "cached-limit" | "allow-negative";
 };
 
 export type ProductCatalogLists = {

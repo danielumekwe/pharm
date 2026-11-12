@@ -14,6 +14,7 @@ import {
 } from "@/lib/data";
 import { issueFefo, postStock, receiveIntoNewBatch } from "@/lib/erp/ledger";
 import { defaultPackaging, packagePrice } from "@/lib/erp/packaging";
+import { priceBasket, PricingError } from "@/lib/erp/sale-pricing";
 import { can, isOutletScoped, type Permission } from "@/lib/rbac";
 import { getStore, nextNumber } from "@/lib/erp/store";
 import type {
@@ -231,22 +232,30 @@ export type SaleInput = {
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-function discountAmount(discount: number | DiscountInput | undefined, base: number) {
-  if (discount === undefined) return 0;
-  if (typeof discount === "number") return Math.max(0, Math.min(discount, base));
-  if (!(discount.value >= 0)) throw new DomainError("Discounts cannot be negative.");
-  if (discount.type === "percent") {
-    if (discount.value > 100) throw new DomainError("A percentage discount cannot exceed 100%.");
-    return round2((base * discount.value) / 100);
+/** Shared sale arithmetic (lib/erp/sale-pricing.ts), with its errors reported as DomainErrors. */
+function pricing<T>(work: () => T): T {
+  try {
+    return work();
+  } catch (error) {
+    if (error instanceof PricingError) throw new DomainError(error.message);
+    throw error;
   }
-  return Math.min(round2(discount.value), base);
 }
 
 /**
  * Posts a sale. Prices, discounts, VAT, payments and stock are all (re)calculated here from the item master,
  * never taken from the till; stock leaves FEFO through the ledger inside the request's database transaction.
  */
-export function createSale(actor: Actor, input: SaleInput) {
+export type SaleOptions = {
+  /** Per line: the package price charged (offline sales, already checked against the price history). */
+  chargedPrices?: (number | undefined)[];
+  /** When the sale happened (offline sales); defaults to now. */
+  at?: string;
+  /** Offline origin of the sale (device, operation, local receipt number). */
+  offline?: SaleInvoice["offline"];
+};
+
+export function createSale(actor: Actor, input: SaleInput, options: SaleOptions = {}) {
   assertCan(actor, "sales.create");
   assertOutletAccess(actor, input.outletId);
   const store = getStore();
@@ -262,7 +271,7 @@ export function createSale(actor: Actor, input: SaleInput) {
 
   // Validate every line before mutating anything.
   const requestedUnits = new Map<string, number>();
-  const prepared = input.lines.map((line) => {
+  const prepared = input.lines.map((line, index) => {
     const product = products.find((row) => row.id === line.productId && row.outletId === input.outletId);
     if (!product) throw new DomainError("One of the items is not stocked at this outlet.");
     if (product.status === "RESTRICTED") throw new DomainError(`${product.name} is restricted and cannot be sold.`);
@@ -280,31 +289,28 @@ export function createSale(actor: Actor, input: SaleInput) {
     if (units > available) {
       throw new DomainError(`Only ${available} sellable ${(product.baseUnit || product.uom).toLowerCase()}(s) of ${product.name} (expired and quarantined batches are blocked).`);
     }
-    const packPrice = packagePrice(level, product, "sellingPrice") ?? product.sellingPrice * level.unitsPerPackage;
-    const gross = round2(packPrice * line.quantity);
-    const discount = discountAmount(line.discount, gross);
-    return { product, level, quantity: line.quantity, baseQuantity, packPrice, gross, discount };
+    const listPrice = packagePrice(level, product, "sellingPrice") ?? product.sellingPrice * level.unitsPerPackage;
+    // Offline sales keep the price the device charged, when it was this item's price at the time of sale.
+    const charged = options.chargedPrices?.[index];
+    const packPrice = charged !== undefined ? charged : listPrice;
+    return { product, level, quantity: line.quantity, baseQuantity, packPrice, gross: 0, discount: 0, lineDiscount: line.discount };
   });
 
-  const subtotal = round2(prepared.reduce((sum, row) => sum + row.gross, 0));
-  // Transaction discount: shared across lines in proportion to their value, so returns refund the right net amount.
-  const afterLines = prepared.reduce((sum, row) => sum + row.gross - row.discount, 0);
-  const globalAmount = input.globalDiscount ? discountAmount(input.globalDiscount, afterLines) : 0;
-  if (globalAmount > 0 && afterLines > 0) {
-    let left = globalAmount;
-    prepared.forEach((row, index) => {
-      const share = index === prepared.length - 1 ? left : round2((globalAmount * (row.gross - row.discount)) / afterLines);
-      row.discount = round2(row.discount + share);
-      left = round2(left - share);
-    });
-  }
+  // Totals: shared arithmetic (line discounts, basket discount shared across lines, VAT).
+  const priced = pricing(() => priceBasket({ lines: prepared.map((row) => ({ packPrice: row.packPrice, quantity: row.quantity, discount: row.lineDiscount })), globalDiscount: input.globalDiscount, vatRate: store.settings.vatRate }));
+  prepared.forEach((row, index) => {
+    row.gross = priced.lines[index].gross;
+    row.discount = priced.lines[index].discount;
+  });
+  const subtotal = priced.subtotal;
+  const globalAmount = priced.globalAmount;
   for (const row of prepared) {
     const minimum = packagePrice(row.level, row.product, "minSellingPrice");
     if (minimum !== undefined && (row.gross - row.discount) / row.quantity < minimum - 0.005) {
       throw new DomainError(`${row.product.name}: the discount takes the ${row.level.name.toLowerCase()} price below the minimum of ₦${minimum.toLocaleString()}.`);
     }
   }
-  const discount = round2(prepared.reduce((sum, row) => sum + row.discount, 0));
+  const discount = priced.discount;
 
   // Discount limits: cashiers up to their limit; larger discounts need "sales.discount", up to the approver ceiling.
   const { cashierMaxDiscountPct, approverMaxDiscountPct } = store.settings.pos;
@@ -319,8 +325,8 @@ export function createSale(actor: Actor, input: SaleInput) {
     throw new DomainError("This sale contains prescription-only medicines. Enter the prescription reference.");
   }
 
-  const vat = Math.round((subtotal - discount) * (store.settings.vatRate / 100));
-  const total = round2(subtotal - discount + vat);
+  const vat = priced.vat;
+  const total = priced.total;
 
   // Payments.
   let paymentMethod: PaymentMethod;
@@ -417,7 +423,7 @@ export function createSale(actor: Actor, input: SaleInput) {
   const sale: SaleInvoice = {
     id: newId("sale", `${Date.now()}${nextNumber("saleId")}`),
     number,
-    date: new Date().toISOString(),
+    date: options.at ?? new Date().toISOString(),
     outletId: input.outletId,
     customerId: customer.id,
     customerName: customer.type === "Walk-in" && walkIn?.name ? `${walkIn.name} (walk-in)` : customer.name,
@@ -441,6 +447,7 @@ export function createSale(actor: Actor, input: SaleInput) {
     customerKind: input.customerKind,
     heldId: input.heldId,
     receiptPrints: 0,
+    offline: options.offline,
   };
 
   store.sales.unshift(sale);

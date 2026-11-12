@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 
 import { BrandingProvider } from "@/components/branding";
 import { NativeBridge } from "@/components/native-bridge";
+import { OfflineRuntime } from "@/components/offline/offline-runtime";
 import { PwaClient } from "@/components/pwa/pwa-client";
 import type { Branding } from "@/lib/erp/branding";
 
@@ -16,6 +17,7 @@ export function Providers({ branding, session, children }: { branding: Branding;
       <BrandingProvider value={branding}>
         <NativeBridge />
         <PwaClient />
+        <OfflineRuntime />
         {children}
       </BrandingProvider>
     </SessionProvider>

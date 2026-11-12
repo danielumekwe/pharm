@@ -236,6 +236,7 @@ export const ROUTE_PERMISSIONS: { prefix: string; anyOf: Permission[] }[] = [
   { prefix: "/products/new", anyOf: ["products.manage"] },
   { prefix: "/products", anyOf: ["products.view"] },
   { prefix: "/inventory/import", anyOf: ["inventory.import"] },
+  { prefix: "/inventory/offline", anyOf: ["stock.approve", "sales.supervise"] },
   { prefix: "/inventory", anyOf: ["stock.view"] },
   { prefix: "/stock-levels", anyOf: ["stock.levels", "stock.view"] },
   { prefix: "/stock", anyOf: ["stock.view"] },

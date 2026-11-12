@@ -299,7 +299,7 @@ describe("Role privileges", () => {
       assert.ok(page.includes("Quantity left") && page.includes(lekkiItem.name));
       const menu = page.slice(page.indexOf('aria-label="Main navigation"'), page.indexOf("</nav>", page.indexOf('aria-label="Main navigation"')));
       const links = [...menu.matchAll(/href="([^"]+)"/g)].map((match) => match[1].replace(/&amp;/g, "&"));
-      const allowed = ["/dashboard", "/pos", "/sales", "/stock-levels", "/sales-overview", "/contacts", "/notifications", "/support", "/help", "/install"];
+      const allowed = ["/dashboard", "/pos", "/sales", "/stock-levels", "/sales-overview", "/contacts", "/notifications", "/support", "/help", "/install", "/inventory/offline"];
       assert.deepEqual(links.filter((href) => !allowed.includes(href)), [], `${email} menu shows only sales items: ${links.join(", ")}`);
     }
     const contacts = await (await sales.request("GET", "/contacts", undefined, { raw: true })).text();

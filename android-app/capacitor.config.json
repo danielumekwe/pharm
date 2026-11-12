@@ -3,7 +3,7 @@
   "appName": "PharmaERP",
   "webDir": "www",
   "server": {
-    "url": "https://pharmacy-erp-demo.vercel.app/dashboard",
+    "url": "https://www.pharmerp.name.ng/dashboard",
     "errorPath": "offline.html",
     "cleartext": false,
     "androidScheme": "https"
