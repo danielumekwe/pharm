@@ -33,6 +33,14 @@
         </provider>
     </application>
 
+    <!-- Android 11+ hides other apps unless declared: lets "Take photo" in the web app open the phone's camera app
+         (the camera app takes the photo, so no camera permission is needed here). -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
