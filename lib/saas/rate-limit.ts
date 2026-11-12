@@ -268,14 +268,40 @@ function tooManyRequests(limit: number, resetAt: number, now: number) {
 }
 
 /** Enforces the same Redis-backed checks before every App Router API handler. */
+// The settings, policies and IP rules change rarely but were read from the database on every API call (a
+// noticeable delay on each one). They are kept for a few seconds per server instance; saving them in the
+// Control Centre clears the copy at once on that instance (process-wide, as the proxy is bundled separately).
+// Active IP blocks are still read on every call.
+const SETTINGS_TTL_MS = Number(process.env.RATE_LIMIT_SETTINGS_TTL_MS ?? 15_000);
+type Snapshot = { at: number; enabled: boolean; policies: Policy[]; rules: Array<{ address: string; effect: "allow" | "block" }> };
+const cacheRegistry = globalThis as typeof globalThis & { __pharmRateLimitSettings?: Snapshot | null };
+
+export function clearRateLimitSettingsCache() {
+  cacheRegistry.__pharmRateLimitSettings = null;
+}
+
+async function rateLimitSettings(): Promise<Snapshot> {
+  const cached = cacheRegistry.__pharmRateLimitSettings;
+  if (cached && Date.now() - cached.at < SETTINGS_TTL_MS) return cached;
+  const snapshot = await platformQuery(async (query): Promise<Snapshot> => {
+    const [config] = await query<{ enabled: boolean }>(`SELECT enabled FROM platform_rate_limit_config WHERE id = 'global'`);
+    if (!config?.enabled) return { at: Date.now(), enabled: false, policies: [], rules: [] };
+    const policies = await query<Policy>(`SELECT id, category, label, scope_type, scope_value, enabled, requests_per_minute, burst, window_seconds, block_seconds FROM platform_rate_limit_policies`);
+    const rules = await query<{ address: string; effect: "allow" | "block" }>(`SELECT address, effect FROM platform_rate_limit_ip_rules WHERE expires_at IS NULL OR expires_at > now()`);
+    return { at: Date.now(), enabled: true, policies, rules };
+  });
+  cacheRegistry.__pharmRateLimitSettings = snapshot;
+  return snapshot;
+}
+
 export async function enforceApiRateLimit(request: NextRequest): Promise<CheckResult> {
   if (process.env.RATE_LIMITING_FORCE_OFF === "1") return { enabled: false };
 
   const path = request.nextUrl.pathname;
-  const [config] = await platformQuery<Array<{ enabled: boolean }>>((query) =>
-    query(`SELECT enabled FROM platform_rate_limit_config WHERE id = 'global'`),
-  );
-  if (!config?.enabled) return { enabled: false };
+  // The reachability check of the installed app must stay instant and is never limited.
+  if (path === "/api/health") return { enabled: false };
+  const settings = await rateLimitSettings();
+  if (!settings.enabled) return { enabled: false };
   if (!redisRateLimitConfigured()) {
     return {
       enabled: true,
@@ -286,13 +312,8 @@ export async function enforceApiRateLimit(request: NextRequest): Promise<CheckRe
   const now = Date.now();
   const ip = addressFromHeaders(request.headers);
   const identity = await identityFor(request);
-  const [policies, rules, blocks] = await Promise.all([
-    platformQuery<Policy[]>((query) =>
-      query(`SELECT id, category, label, scope_type, scope_value, enabled, requests_per_minute, burst, window_seconds, block_seconds FROM platform_rate_limit_policies`),
-    ),
-    platformQuery<Array<{ address: string; effect: "allow" | "block" }>>((query) =>
-      query(`SELECT address, effect FROM platform_rate_limit_ip_rules WHERE expires_at IS NULL OR expires_at > now()`),
-    ),
+  const { policies, rules } = settings;
+  const [blocks] = await Promise.all([
     ip === "unknown"
       ? Promise.resolve([] as Array<{ id: string; reason: string; expires_at: Date }>)
       : platformQuery<Array<{ id: string; reason: string; expires_at: Date }>>((query) =>

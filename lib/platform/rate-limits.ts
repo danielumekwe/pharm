@@ -5,7 +5,7 @@ import { platformQuery } from "@/lib/db/database";
 import { DomainError } from "@/lib/erp/services";
 import { platformActorRef, recordPlatformAudit } from "@/lib/platform/audit";
 import type { PlatformActor } from "@/lib/platform/session";
-import { redisRateLimitConfigured } from "@/lib/saas/rate-limit";
+import { clearRateLimitSettingsCache, redisRateLimitConfigured } from "@/lib/saas/rate-limit";
 import { RATE_LIMIT_CATEGORY_IDS } from "@/lib/saas/rate-limit-categories";
 
 type Policy = {
@@ -126,6 +126,7 @@ export async function rateLimitDashboard(filters: RateLimitFilters = {}) {
 }
 
 export async function updateRateLimitConfig(actor: PlatformActor, enabled: boolean) {
+  clearRateLimitSettingsCache();
   if (enabled && !redisRateLimitConfigured()) {
     throw new DomainError("Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN before enabling distributed rate limiting.", 503);
   }
@@ -133,6 +134,7 @@ export async function updateRateLimitConfig(actor: PlatformActor, enabled: boole
     query(`UPDATE platform_rate_limit_config SET enabled = $1, updated_at = now(), updated_by = $2 WHERE id = 'global'`, [enabled, actor.id]),
   );
   await audit(actor, "config-updated", `Global rate limiting ${enabled ? "enabled" : "disabled"}.`);
+  clearRateLimitSettingsCache();
   return { enabled, redisConfigured: redisRateLimitConfigured() };
 }
 
@@ -150,6 +152,7 @@ export type RateLimitPolicyInput = {
 };
 
 export async function saveRateLimitPolicy(actor: PlatformActor, input: RateLimitPolicyInput) {
+  clearRateLimitSettingsCache();
   if (!RATE_LIMIT_CATEGORY_IDS.includes(input.category as typeof RATE_LIMIT_CATEGORY_IDS[number])) throw new DomainError("Choose a supported policy category.", 400);
   const value = input.scopeType === "global" || (input.scopeType === "ip" && input.id && !input.scopeValue) ? "" : input.scopeValue?.trim() ?? "";
   if ((input.scopeType === "global" || (input.scopeType === "ip" && !value)) && !input.id) {
@@ -191,6 +194,7 @@ export async function saveRateLimitPolicy(actor: PlatformActor, input: RateLimit
   );
   if (!saved) throw new DomainError("That policy could not be found.", 404);
   await audit(actor, "policy-saved", `Updated ${saved.label} (${saved.scope_type}${saved.scope_value ? `: ${saved.scope_value}` : ""}).`, saved.id);
+  clearRateLimitSettingsCache();
   return saved;
 }
 
@@ -198,6 +202,7 @@ export async function saveRateLimitIpRule(
   actor: PlatformActor,
   input: { address: string; effect: "allow" | "block"; reason: string; expiresHours?: number },
 ) {
+  clearRateLimitSettingsCache();
   const address = input.address.trim();
   if (!validIpOrCidr(address)) throw new DomainError("Enter a valid IPv4/IPv6 address or CIDR range.", 400);
   if (input.effect === "block" && (!input.expiresHours || input.expiresHours > 720)) {
@@ -214,10 +219,12 @@ export async function saveRateLimitIpRule(
     ),
   );
   await audit(actor, "ip-rule-saved", `${input.effect === "allow" ? "Allowlisted" : "Blocklisted"} ${address}.`, rule?.id);
+  clearRateLimitSettingsCache();
   return { id: rule?.id, address, effect: input.effect, expiresAt: expiry?.toISOString() ?? null };
 }
 
 export async function blockRateLimitIp(actor: PlatformActor, input: { ip: string; reason: string; expiresMinutes: number }) {
+  clearRateLimitSettingsCache();
   if (isIP(input.ip.trim()) === 0) throw new DomainError("Enter a valid IP address.", 400);
   const expiry = new Date(Date.now() + input.expiresMinutes * 60_000);
   const ip = input.ip.trim();
@@ -231,10 +238,12 @@ export async function blockRateLimitIp(actor: PlatformActor, input: { ip: string
     ),
   );
   await audit(actor, "ip-blocked", `Temporarily blocked ${ip} until ${expiry.toISOString()}.`, block?.id);
+  clearRateLimitSettingsCache();
   return { id: block?.id, ip, expiresAt: expiry.toISOString() };
 }
 
 export async function removeRateLimitEntry(actor: PlatformActor, id: string, kind: "policy" | "rule" | "block") {
+  clearRateLimitSettingsCache();
   const table = kind === "policy" ? "platform_rate_limit_policies" : kind === "rule" ? "platform_rate_limit_ip_rules" : "platform_rate_limit_blocks";
   const filter = kind === "policy" ? `id = $1 AND scope_type <> 'global' AND NOT (scope_type = 'ip' AND scope_value = '')` : `id = $1`;
   const [removed] = await platformQuery<Array<{ id: string }>>((query) =>
@@ -242,5 +251,6 @@ export async function removeRateLimitEntry(actor: PlatformActor, id: string, kin
   );
   if (!removed) throw new DomainError("That rate-limit entry could not be found.", 404);
   await audit(actor, `${kind}-removed`, `Removed ${kind} ${id}.`, id);
+  clearRateLimitSettingsCache();
   return { ok: true };
 }
