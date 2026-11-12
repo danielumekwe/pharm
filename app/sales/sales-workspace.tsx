@@ -80,10 +80,10 @@ export function SalesWorkspace({
           <div className="flex justify-end gap-1">
             {sale ? <button type="button" onClick={() => setViewing(sale)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label={`View ${row.number}`} title="View details"><Eye className="h-4 w-4" /></button> : null}
             <a href={`/api/sales/${row.id}/receipt?format=pdf&print=1`} target="_blank" rel="noreferrer" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label={`Print receipt ${row.number}`} title="Print / reprint receipt"><Printer className="h-4 w-4" /></a>
-            {canVoid && sale && row.status !== "Voided" ? (
+            {canVoid && sale && row.status !== "Voided" && !row.migrated ? (
               <button type="button" onClick={() => setReturning(sale)} className="rounded-lg p-1.5 text-slate-400 hover:bg-amber-500/10 hover:text-amber-300" aria-label={`Return items on ${row.number}`} title="Return / refund"><RotateCcw className="h-4 w-4" /></button>
             ) : null}
-            {canVoid && sale && row.status !== "Voided" ? (
+            {canVoid && sale && row.status !== "Voided" && !row.migrated ? (
               <button type="button" onClick={() => setVoiding(sale)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300" aria-label={`Void ${row.number}`} title="Void"><XCircle className="h-4 w-4" /></button>
             ) : null}
           </div>

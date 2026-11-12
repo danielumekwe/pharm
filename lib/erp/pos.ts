@@ -222,8 +222,10 @@ function historyRow(sale: SaleInvoice, returns: number) {
     total: sale.total,
     amountPaid: sale.amountPaid,
     methods: saleTenders(sale).map((row) => row.method),
-    paymentLabel: sale.payments?.length ? sale.payments.map((row) => (row.method === "Card" ? "POS" : row.method)).join(" + ") : sale.paymentMethod === "Card" ? "POS" : sale.paymentMethod,
+    paymentLabel: `${sale.migrated ? `Paper record ${sale.migrated.jobReference} · ` : ""}${sale.payments?.length ? sale.payments.map((row) => (row.method === "Card" ? "POS" : row.method)).join(" + ") : sale.paymentMethod === "Card" ? "POS" : sale.paymentMethod}`,
     status: sale.status,
+    /** Historical sale entered from paper records: no stock moved, cannot be voided or returned. */
+    migrated: Boolean(sale.migrated),
     prescriptionRef: sale.prescriptionRef ?? "",
   };
 }

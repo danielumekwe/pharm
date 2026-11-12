@@ -33,6 +33,7 @@ export function createSaleReturn(actor: Actor, saleId: string, input: ReturnInpu
   if (!sale) throw new DomainError("Sale not found.", 404);
   assertOutletAccess(actor, sale.outletId);
   if (sale.status === "Voided") throw new DomainError("A voided sale cannot be returned.");
+  if (sale.migrated) throw new DomainError("Historical sales entered from paper records cannot be returned.");
   if (Date.now() - Date.parse(sale.date) > RETURN_WINDOW_DAYS * 86_400_000) throw new DomainError(`Returns are only accepted within ${RETURN_WINDOW_DAYS} days of sale.`);
   if (input.reason.trim().length < 3) throw new DomainError("Give a reason for the return.");
   const lines = input.lines.filter((line) => line.quantity > 0);

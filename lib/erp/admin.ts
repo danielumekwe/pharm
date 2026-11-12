@@ -155,7 +155,7 @@ export function resetRolePermissions(actor: Actor, role: string, reason: string)
 
 // ---------------------------------------------------------------- system settings
 
-const SETTING_LIMITS: Record<Exclude<keyof SystemSettings, "businessName" | "logoFile" | "expiryIntervals" | "nearExpiryDays" | "impersonation" | "lowStock" | "alertEmail" | "catalog" | "pos" | "salesTargets" | "offline">, [number, number, string]> = {
+const SETTING_LIMITS: Record<Exclude<keyof SystemSettings, "businessName" | "logoFile" | "expiryIntervals" | "nearExpiryDays" | "impersonation" | "lowStock" | "alertEmail" | "catalog" | "pos" | "salesTargets" | "offline" | "documentScanner">, [number, number, string]> = {
   vatRate: [0, 25, "VAT rate"],
   minShelfLifeDays: [30, 730, "Minimum shelf life at receipt"],
   criticalShortagePct: [0, 100, "Critical shortage level"],

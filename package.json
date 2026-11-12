@@ -25,6 +25,7 @@
     "postinstall": "node scripts/patch-pdfkit.mjs && prisma generate"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
     "@auth/prisma-adapter": "^2.11.3",
     "@base-ui/react": "^1.9.0",
     "@hookform/resolvers": "^7.0.2",
@@ -46,6 +47,7 @@
     "next": "16.4.5",
     "next-auth": "^4.24.15",
     "nodemailer": "^7.0.13",
+    "pdfjs-dist": "6.4.299",
     "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "react": "19.3.0",

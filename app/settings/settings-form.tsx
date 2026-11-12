@@ -1,6 +1,7 @@
 "use client";
 
-import { RotateCcw, Save, Trash2, Upload } from "lucide-react";
+import { RotateCcw, Save, ScanText, Trash2, Upload } from "lucide-react";
+import Link from "next/link";
 import { useRef, useState } from "react";
 
 import { BrandLogo, useBranding } from "@/components/branding";
@@ -12,7 +13,7 @@ import { useAction } from "@/components/erp/use-action";
 import type { SystemSettings } from "@/lib/erp/types";
 import { dateTime } from "@/lib/format";
 
-type NumberKey = Exclude<keyof SystemSettings, "businessName" | "logoFile" | "expiryIntervals" | "nearExpiryDays" | "impersonation" | "lowStock" | "alertEmail">;
+type NumberKey = Exclude<keyof SystemSettings, "businessName" | "logoFile" | "expiryIntervals" | "nearExpiryDays" | "impersonation" | "lowStock" | "alertEmail" | "documentScanner">;
 
 const FIELDS: { key: NumberKey; label: string; hint: string; suffix: string; section: string }[] = [
   { key: "vatRate", label: "VAT rate", hint: "Charged on every sale. Nigeria's standard rate is 7.5%.", suffix: "%", section: "Sales & tax" },
@@ -34,7 +35,16 @@ export function SettingsForm({ settings, defaults, history }: { settings: System
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Administration" title="System settings" description="Organisation-wide rules used by sales, receiving, compliance and security. Changes take effect immediately and are recorded in the audit trail." />
+      <PageHeader
+        eyebrow="Administration"
+        title="System settings"
+        description="Organisation-wide rules used by sales, receiving, compliance and security. Changes take effect immediately and are recorded in the audit trail."
+        actions={
+          <Link href="/data-migration" className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm font-medium text-slate-100 hover:bg-slate-800">
+            <ScanText className="h-4 w-4" /> Data Migration / Data Import Centre
+          </Link>
+        }
+      />
       <Panel id="business-profile" title="Branding" description="Shown in the browser tab, on the sign-in page and in the sidebar for everyone.">
         <div className="grid gap-6 md:grid-cols-2">
           <Field label="Site title / business name" hint="Save settings below to apply. 3–80 characters.">

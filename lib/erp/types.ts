@@ -127,6 +127,21 @@ export type SaleInvoice = {
     /** Set when someone confirmed (or flagged) the unverified tenders. */
     verification?: { outcome: "verified" | "not-received"; by: string; at: string; note?: string };
   };
+  /**
+   * Historical sale entered from the pharmacy's paper records (AI Document Scanner). Kept for history and
+   * reports on its original date only: it moved no stock, took no payment and cannot be voided or returned.
+   */
+  migrated?: {
+    source: "document-scan";
+    kind: "transaction" | "daily-summary";
+    jobId: string;
+    jobReference: string;
+    recordId: string;
+    /** Receipt number written on the paper record, if any. */
+    receiptNumber?: string;
+    approvedBy: string;
+    importedAt: string;
+  };
 };
 
 /** A basket parked at the till (held for a waiting customer, or saved as a draft). Not a sale: no stock moves. */
@@ -345,6 +360,11 @@ export type SystemSettings = {
   salesTargets: Record<string, number>;
   /** Offline use of registered devices (installed app). */
   offline: OfflinePolicy;
+  /**
+   * AI Document Scanner: page images are sent to the configured AI provider only after a Super Administrator
+   * has approved that for this pharmacy.
+   */
+  documentScanner?: { aiApproved: boolean; changedBy?: string; changedAt?: string };
 };
 
 export type OfflinePolicy = {

@@ -22,6 +22,7 @@ import {
   autoMap,
   describeLevels,
   FIELD_KEYS,
+  FIELDS,
   fieldsFor,
   IMPORT_KIND_LABELS,
   IMPORT_KINDS,
@@ -1027,6 +1028,40 @@ export async function createImport(actor: Actor, input: { kind: string; fileName
   );
   recordAudit(actor, { action: "inventory.import.upload", entity: "InventoryImport", entityId: reference, summary: `Uploaded ${fileName} for ${IMPORT_KIND_LABELS[kind].toLowerCase()} import ${reference} (${sheet.rows.length} rows)`, outletId });
   return importDetail(actor, id);
+}
+
+/**
+ * Import staged from records that did not come from a spreadsheet (AI Document Scanner): the records become
+ * the rows of an ordinary import, so they go through the same preview, product matching, duplicate checks,
+ * confirmed commit, stock ledger, report and rollback as an uploaded file. Returns the previewed import.
+ */
+export async function createImportFromRows(
+  actor: Actor,
+  input: { kind: ImportKind; fileName: string; fields: FieldKey[]; rows: string[][]; outletId: string; decisions?: Record<string, Decision>; source: string },
+) {
+  assertImporter(actor);
+  if (!IMPORT_KINDS.includes(input.kind)) throw new DomainError("Unknown import type.");
+  if (!input.rows.length) throw new DomainError("There are no records to import.");
+  const headers = input.fields.map((key) => FIELDS.find((field) => field.key === key)?.label ?? key);
+  const sheet = { headers, rows: input.rows, rowNumbers: input.rows.map((_, index) => index + 2) };
+  const bytes = new TextEncoder().encode(toCsv([headers, ...input.rows]));
+  const id = newId("imp", randomUUID().replace(/-/g, "").slice(0, 16));
+  const reference = `IMP-${String(nextNumber("import")).padStart(5, "0")}`;
+  const mapping: Mapping = Object.fromEntries(input.fields.map((key, index) => [key, index]));
+  await runSql(
+    `INSERT INTO inventory_imports (id, tenant_id, reference, kind, status, file_name, file_hash, file_size, row_count, outlet_id, data, mapping, created_by_id, created_by_name)
+     VALUES ($1, $2, $3, $4, 'DRAFT', $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13)`,
+    [id, currentTenantId(), reference, input.kind, input.fileName.slice(0, 120), fileHash(bytes), bytes.length, input.rows.length, input.outletId, JSON.stringify(sheet), JSON.stringify(mapping), actor.id, actor.name],
+  );
+  recordAudit(actor, { action: "inventory.import.upload", entity: "InventoryImport", entityId: reference, summary: `Staged ${input.rows.length} proofread records from ${input.source} as ${IMPORT_KIND_LABELS[input.kind].toLowerCase()} import ${reference}`, outletId: input.outletId });
+  return previewImport(actor, id, { kind: input.kind, mapping, options: { outletId: input.outletId, dateFormat: "DMY", priceBasis: "base" }, decisions: input.decisions });
+}
+
+/** Status and per-row results of an import, for workflows that staged it (AI Document Scanner). */
+export async function importOutcome(id: string) {
+  const [row] = await runSql<DbRow>(`SELECT id, reference, status, results, row_count FROM inventory_imports WHERE id = $1 AND tenant_id = $2`, [id, currentTenantId()]);
+  if (!row) return null;
+  return { id: String(row.id), reference: String(row.reference), status: row.status as ImportStatus, rowCount: Number(row.row_count), results: (row.results ?? {}) as Record<string, RowResult> };
 }
 
 const optionsSchema = (input: unknown): ImportOptions => {

@@ -61,6 +61,8 @@ export const PERMISSIONS = {
   "stock.request": { label: "Issue stock, transfers & adjustments", group: "Inventory" },
   "stock.approve": { label: "Approve stock movements", group: "Inventory" },
   "inventory.import": { label: "Bulk import products & opening stock (and roll imports back)", group: "Inventory", sensitive: true },
+  "documents.scan": { label: "Scan & proofread paper records (AI Document Scanner)", group: "Inventory" },
+  "documents.approve": { label: "Approve & import scanned paper records", group: "Inventory", sensitive: true },
   "alerts.view": { label: "View inventory alerts", group: "Inventory" },
   "alerts.manage": { label: "Manage alerts, thresholds & expired stock", group: "Inventory" },
   "alerts.configure": { label: "Configure threshold rules & alert emails", group: "Inventory", sensitive: true },
@@ -98,7 +100,7 @@ export const SUPER_ADMIN_ONLY: Permission[] = ["permissions.manage", "settings.m
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: ALL_PERMISSIONS,
   // Operational control across outlets; selling at the till and alert/email rules stay with cashiers and the Super Admin.
-  PHARMACY_MANAGER: ALL_PERMISSIONS.filter((permission) => !SUPER_ADMIN_ONLY.includes(permission) && !["regulatory.manage", "sales.create", "alerts.configure", "inventory.import"].includes(permission)),
+  PHARMACY_MANAGER: ALL_PERMISSIONS.filter((permission) => !SUPER_ADMIN_ONLY.includes(permission) && !["regulatory.manage", "sales.create", "alerts.configure", "inventory.import", "documents.approve"].includes(permission)),
   REGULATORY_OFFICER: [
     "dashboard.view",
     "products.view",
@@ -135,6 +137,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "stock.request",
     "stock.approve",
     "inventory.import",
+    "documents.scan",
     "alerts.view",
     "alerts.manage",
     "purchase.view",
@@ -182,7 +185,7 @@ export function roleMatrix(): Record<Role, Permission[]> {
 }
 
 /** Permissions added after the first release; stored matrices without them get the defaults. */
-const ADDED_PERMISSIONS: Permission[] = ["catalog.manage", "sales.supervise", "sales.discount", "products.price", "stock.levels", "inventory.import"];
+const ADDED_PERMISSIONS: Permission[] = ["catalog.manage", "sales.supervise", "sales.discount", "products.price", "stock.levels", "inventory.import", "documents.scan", "documents.approve"];
 
 export function setRoleMatrix(matrix: Record<Role, Permission[]>) {
   (globalThis as Registry)[MATRIX_KEY] = matrix;
@@ -236,6 +239,7 @@ export const ROUTE_PERMISSIONS: { prefix: string; anyOf: Permission[] }[] = [
   { prefix: "/products/new", anyOf: ["products.manage"] },
   { prefix: "/products", anyOf: ["products.view"] },
   { prefix: "/inventory/import", anyOf: ["inventory.import"] },
+  { prefix: "/data-migration", anyOf: ["documents.scan", "documents.approve", "inventory.import"] },
   { prefix: "/inventory/offline", anyOf: ["stock.approve", "sales.supervise"] },
   { prefix: "/inventory", anyOf: ["stock.view"] },
   { prefix: "/stock-levels", anyOf: ["stock.levels", "stock.view"] },

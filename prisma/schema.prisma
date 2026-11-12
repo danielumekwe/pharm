@@ -532,6 +532,7 @@ model Sale {
   heldId                   String?        @map("held_id")
   receiptPrints            Int?           @map("receipt_prints")
   offline                  String?         // JSON
+  migrated                 String?         // JSON
   seq                      Int            // insertion order
   tenantId                 String         @map("tenant_id")
   tenant                   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)

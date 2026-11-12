@@ -25,6 +25,7 @@ import type {
   Expense,
   Payment,
   PaymentMethod,
+  SaleLine,
   PurchaseOrder,
   SaleInvoice,
   SaleTender,
@@ -513,6 +514,118 @@ export function createSale(actor: Actor, input: SaleInput, options: SaleOptions 
  * How a sale was settled, as amounts per method. Split sales list their tenders; older sales put the whole total
  * on their single method. Anything not yet paid on credit/HMO/account sales is reported as "Account".
  */
+export type MigratedSaleInput = {
+  outletId: string;
+  kind: "transaction" | "daily-summary";
+  /** Original date of the sale (YYYY-MM-DD), before today. */
+  date: string;
+  receiptNumber?: string;
+  /** Items as written on the paper record (none for a daily total). */
+  lines: { productName: string; quantity: number; unitPrice?: number; discount: number; total: number }[];
+  total: number;
+  discount: number;
+  /** How it was paid, as written (cash / card / transfer amounts, or credit). */
+  tenders: { method: "Cash" | "Card" | "Transfer" | "Credit"; amount: number }[];
+  customerName?: string;
+  customerPhone?: string;
+  note?: string;
+  source: { jobId: string; jobReference: string; recordId: string };
+};
+
+/**
+ * Historical sale from the pharmacy's paper records (AI Document Scanner, after a person approved it).
+ * Kept on its original date for sales history and reports. Unlike createSale it moves no stock (the items left
+ * the shelves long ago and opening stock is counted separately), records no payment, changes no customer
+ * balance and sends nothing to anyone. Migrated sales cannot be voided or returned.
+ */
+export function recordMigratedSale(actor: Actor, input: MigratedSaleInput) {
+  assertCan(actor, "documents.approve");
+  assertOutletAccess(actor, input.outletId);
+  const store = getStore();
+  const outlet = outlets.find((row) => row.id === input.outletId);
+  if (!outlet) throw new DomainError("Unknown outlet.");
+  if (outlet.type === "WAREHOUSE") throw new DomainError("Warehouses have no sales.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || Number.isNaN(Date.parse(input.date))) throw new DomainError("The sale date is not a valid date.");
+  if (input.date >= new Date().toISOString().slice(0, 10)) throw new DomainError("Historical sales must be dated before today. Today's sales are recorded at the till.");
+  if (!(input.total > 0)) throw new DomainError("The sale total must be more than zero.");
+  if (input.kind === "transaction" && !input.lines.length) throw new DomainError("A sale needs at least one item.");
+  for (const line of input.lines) {
+    if (!line.productName.trim()) throw new DomainError("Every item needs a product name.");
+    if (!Number.isInteger(line.quantity) || line.quantity <= 0) throw new DomainError(`Invalid quantity for ${line.productName}.`);
+    if (!(line.total > 0)) throw new DomainError(`Invalid amount for ${line.productName}.`);
+  }
+  // A daily total and individual sales for the same day would count the same money twice.
+  const sameDay = store.sales.filter((sale) => sale.outletId === input.outletId && sale.status !== "Voided" && sale.date.slice(0, 10) === input.date);
+  if (input.kind === "daily-summary" && sameDay.length) throw new DomainError(`${sameDay.length} sale(s) already exist at ${outlet.name} on ${input.date}; a daily total would count them twice.`);
+  if (input.kind === "transaction" && sameDay.some((sale) => sale.migrated?.kind === "daily-summary")) throw new DomainError(`A daily sales total for ${input.date} was already imported; individual sales would count twice.`);
+  if (input.receiptNumber && sameDay.some((sale) => sale.migrated?.receiptNumber?.toLowerCase() === input.receiptNumber!.toLowerCase())) {
+    throw new DomainError(`Receipt ${input.receiptNumber} of ${input.date} was already imported.`);
+  }
+
+  const tenders = input.tenders.filter((row) => row.amount > 0);
+  const methods = new Set(tenders.map((row) => row.method));
+  const paymentMethod: PaymentMethod = methods.size > 1 ? "Split" : ([...methods][0] ?? "Cash");
+  const number = `HIS-${String(nextNumber("historicalSale")).padStart(5, "0")}`;
+  const lines: SaleLine[] = input.lines.map((line) => {
+    // Linked to the catalogue only when the name matches an item at the outlet exactly; otherwise kept by name.
+    const product = products.find((row) => row.outletId === input.outletId && row.name.trim().toLowerCase() === line.productName.trim().toLowerCase());
+    return {
+      productId: product?.id ?? "",
+      productName: product?.name ?? line.productName.trim(),
+      batchNumbers: [],
+      quantity: line.quantity,
+      unitPrice: round2(line.unitPrice ?? (line.total + line.discount) / line.quantity),
+      discount: round2(line.discount),
+      total: round2(line.total),
+    };
+  });
+  const total = round2(input.total);
+  const discount = round2(input.discount);
+  const sale: SaleInvoice = {
+    id: newId("sale", `${Date.now()}${nextNumber("saleId")}`),
+    number,
+    // Midday Lagos time keeps the original calendar day in every report.
+    date: new Date(`${input.date}T12:00:00+01:00`).toISOString(),
+    outletId: input.outletId,
+    customerId: null,
+    customerName: input.customerName?.trim() || (input.kind === "daily-summary" ? "Daily sales total (paper records)" : "Walk-in (paper records)"),
+    cashier: "Paper records (migrated)",
+    lines,
+    subtotal: round2(total + discount),
+    discount,
+    vat: 0,
+    total,
+    amountPaid: total,
+    paymentMethod,
+    status: "Paid",
+    payments: tenders.filter((row) => row.method !== "Credit").map((row) => ({ method: row.method as TenderMethod, amount: round2(row.amount) })),
+    walkIn: input.customerName || input.customerPhone ? { name: input.customerName?.trim() || undefined, phone: input.customerPhone?.trim() || undefined } : undefined,
+    migrated: {
+      source: "document-scan",
+      kind: input.kind,
+      jobId: input.source.jobId,
+      jobReference: input.source.jobReference,
+      recordId: input.source.recordId,
+      receiptNumber: input.receiptNumber?.trim() || undefined,
+      approvedBy: actor.name,
+      importedAt: new Date().toISOString(),
+    },
+  };
+  if (!sale.payments?.length) delete sale.payments;
+  // The sales list is kept newest-first: insert at the sale's original date.
+  const at = store.sales.findIndex((row) => row.date < sale.date);
+  if (at === -1) store.sales.push(sale);
+  else store.sales.splice(at, 0, sale);
+  recordAudit(actor, {
+    action: "sale.migrated",
+    entity: "SaleInvoice",
+    entityId: sale.id,
+    summary: `${number}: historical ${input.kind === "daily-summary" ? "daily sales total" : "sale"} of ${input.date} · ₦${total.toLocaleString()} from paper records ${input.source.jobReference}${input.receiptNumber ? ` (receipt ${input.receiptNumber})` : ""}. No stock or payment recorded.`,
+    outletId: input.outletId,
+  });
+  return sale;
+}
+
 export function saleTenders(sale: SaleInvoice): { method: "Cash" | "Card" | "Transfer" | "Credit" | "HMO" | "Account"; amount: number }[] {
   if (sale.payments?.length) {
     const rows: { method: "Cash" | "Card" | "Transfer" | "Account"; amount: number }[] = sale.payments.map((row) => ({ method: row.method, amount: row.amount }));
@@ -538,6 +651,7 @@ export function voidSale(actor: Actor, saleId: string, reason: string) {
   if (!sale) throw new DomainError("Sale not found.", 404);
   assertOutletAccess(actor, sale.outletId);
   if (sale.status === "Voided") throw new DomainError("Sale is already voided.");
+  if (sale.migrated) throw new DomainError("Historical sales entered from paper records cannot be voided: they moved no stock and took no payment.");
   if (!reason.trim()) throw new DomainError("A void reason is required.");
   if (Date.now() - new Date(sale.date).getTime() > 7 * DAY) {
     throw new DomainError("Sales older than 7 days must be reversed with a credit note, not voided.");
